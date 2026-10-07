@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alphalist-converter"
+version = "0.1.0"
+description = "Local, auditable BIR 1604-C annualization review and conversion"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "jinja2>=3.1,<4", "python-multipart>=0.0.20,<1", "openpyxl>=3.1,<4", "reportlab>=4,<6"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff", "mypy", "types-openpyxl", "types-reportlab", "pypdf", "pymupdf", "playwright"]
+
+[project.scripts]
+alphalist = "alphalist.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+alphalist = ["headers.json", "templates/*.html", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+check_untyped_defs = true
+disallow_untyped_defs = true

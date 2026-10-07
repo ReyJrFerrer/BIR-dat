@@ -1,0 +1,10 @@
+{% macro employee_field(key, label, row, values, messages=()) %}
+<label id="field-{{ key }}" class="{{ 'needs-value' if messages else '' }}">
+  <span class="field-label">{{ label }} <small>{{ row.cells[key] }}</small></span>
+  {% if key == 'AD' %}
+  <select name="value_{{ key }}"><option value="">Not supplied</option>{% for option in ['Yes','No'] %}<option value="{{ option }}" {{ 'selected' if values[key]|lower == option|lower else '' }}>{{ option }}</option>{% endfor %}{% if values[key] and values[key]|lower not in ['yes','no'] %}<option selected>{{ values[key] }}</option>{% endif %}</select>
+  {% else %}<input name="value_{{ key }}" value="{{ values[key] }}" maxlength="500" placeholder="Not supplied" {% if key in ['V','AE'] %}inputmode="numeric"{% endif %}>{% endif %}
+  {% for issue in messages %}<small class="field-error">{{ issue.message }}</small>{% endfor %}
+  <small>Original: {{ row.values[key] or 'Not supplied' }}</small>
+</label>
+{% endmacro %}

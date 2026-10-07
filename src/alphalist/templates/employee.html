@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% from 'fields.html' import employee_field %}
+{% block content %}
+<div class="breadcrumb"><a href="/review#issues">← Back to export checklist</a> / {{ values.A }}</div>
+<div class="page-heading"><div><div class="eyebrow">EMPLOYEE RECORD · {{ values.A }}</div><h1>{{ values.W }}, {{ values.X }} {{ values.Y }}</h1><p class="muted">{{ tasks|length }} field{{ 's' if tasks|length != 1 else '' }} needing correction · {{ review.source.sheet }} · Row {{ row.key }}</p></div><a class="button secondary" href="/download/draft">Download draft PDF</a></div>
+<form action="/correct/{{ row.key }}" method="post">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ review.revision }}">
+<section class="panel priority-panel"><span class="eyebrow">CORRECT THESE FIRST</span><h2>{{ 'Required employee information' if tasks else 'No source fields need correction' }}</h2>
+{% if tasks %}<p>Only the fields with blocking data errors appear here. Enter supported values when available; unknown information can stay unresolved.</p><div class="form-grid">{% for task in tasks %}{% set field = task.issues[0].field %}{% if field in headers %}{{ employee_field(field, headers[field], row, values, task.issues) }}{% endif %}{% endfor %}</div>
+{% else %}<p>The imported fields passed their data checks. The filing checklist shows any remaining classification or converter-support requirements.</p>{% endif %}
+</section>
+{% if profile_issues %}<div class="notice">{{ profile_issues|length }} converter-support check{{ 's' if profile_issues|length != 1 else '' }} also affect this employee. These require verified BIR rules before final export. <a href="/review#support">View support checks →</a></div>{% endif %}
+<section class="panel"><h2>Other employee details</h2><p>Expand a section only if another source value needs changing.</p>
+{% for title,fields in field_groups %}<details class="field-section"><summary>{{ title }}</summary><div class="form-grid source-fields">{% for key in fields if key not in correction_fields %}{{ employee_field(key, headers[key], row, values) }}{% endfor %}</div></details>{% endfor %}</section>
+<section class="panel"><details id="employee-answers"><summary>Employee exceptions to shared review answers</summary><p>Most answers can be recorded once in the <a href="/review#shared-review">filing review</a>. Use an employee exception only when supporting information differs.</p><div class="form-grid">{% for key,definition in declarations.items() %}<label id="field-{{ key }}">{{ definition[0] }}<select name="value_{{ key }}"><option value="inherit" {{ 'selected' if key not in answers else '' }}>Use the shared answer</option>{% for option in definition[1] %}<option value="{{ option }}" {{ 'selected' if answers.get(key) == option else '' }}>{{ answer_labels[option] }}</option>{% endfor %}</select><small>Currently: {{ answer_labels.get(effective.get(key,'unknown'), 'Not known') }}</small></label>{% endfor %}</div></details></section>
+<div class="panel sticky-save"><label class="reason">Reason / supporting source<input name="reason" required maxlength="1000" placeholder="Where did the corrected information come from?"></label><button class="primary">Save & recheck</button><a href="/review#issues">Back</a></div>
+</form>
+{% endblock %}
