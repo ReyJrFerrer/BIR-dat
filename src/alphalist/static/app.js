@@ -1,5 +1,12 @@
 'use strict';
 
+const browserSession = document.documentElement.dataset.browserSession === 'true';
+const browserSessionKey = 'alphalist-review-session-v1';
+const currentBrowserState = () => sessionStorage.getItem(browserSessionKey);
+function saveBrowserState(data) {
+  if (browserSession && typeof data.state === 'string') sessionStorage.setItem(browserSessionKey, data.state);
+}
+
 const initialForms = new WeakMap();
 let busy = false;
 let navigating = false;
@@ -88,10 +95,21 @@ function inlineError(form, message) {
 }
 
 async function postForm(form) {
-  const response = await fetch(form.action, {method: 'POST', body: new FormData(form), headers: {Accept: 'application/json'}});
+  const body = new FormData(form);
+  if (browserSession) {
+    let state = currentBrowserState();
+    // A replacement import needs the CSRF token, not the previous workbook contents.
+    if (form.hasAttribute('data-upload') && state) {
+      const previous = JSON.parse(state);
+      state = JSON.stringify({...previous, review: null, notification: ''});
+    }
+    body.set('_browser_session', state || '');
+  }
+  const response = await fetch(form.action, {method: 'POST', body, headers: {Accept: 'application/json'}});
   let data;
   try { data = await response.json(); } catch { throw new Error("We couldn't save your changes. Try again."); }
   if (!response.ok) throw new Error(data.detail || 'The request could not be completed. Try again.');
+  saveBrowserState(data);
   return data;
 }
 
@@ -144,9 +162,13 @@ async function openEmployee(link) {
   content.innerHTML = '<p class="empty" role="status">Loading employee…</p>';
   drawer.showModal();
   try {
-    const response = await fetch(`${url.pathname}?fragment=1`);
+    const response = browserSession
+      ? await fetch('/browser/page', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({path: `${url.pathname}?fragment=1`, state: currentBrowserState()})})
+      : await fetch(`${url.pathname}?fragment=1`);
     if (!response.ok) throw new Error('The employee could not be loaded. Close this panel and try again.');
-    const html = await response.text();
+    const data = browserSession ? await response.json() : null;
+    if (data) saveBrowserState(data);
+    const html = data ? data.html : await response.text();
     if (load !== drawerLoad || !drawer.open) return;
     content.innerHTML = html;
     bindForms(content);
@@ -234,7 +256,9 @@ async function downloadFile(link) {
   const label = kind === 'dat' ? 'DAT' : kind === 'draft' ? 'draft PDF' : 'final PDF';
   link.setAttribute('aria-busy', 'true');
   try {
-    const response = await fetch(link.href);
+    const response = browserSession
+      ? await fetch(`/browser/download/${encodeURIComponent(kind)}`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({state: currentBrowserState()})})
+      : await fetch(link.href);
     if (!response.ok) throw new Error();
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -285,6 +309,8 @@ const upload = document.querySelector('[data-upload]');
 if (upload) {
   const input = upload.querySelector('[type="file"]');
   const zone = upload.querySelector('.dropzone');
+  const maxSize = Number(upload.dataset.maxSize);
+  const maxSizeMB = maxSize / 1024 / 1024;
   function selectedFile() {
     const file = input.files[0];
     document.querySelector('#file-selection').hidden = !file;
@@ -293,7 +319,7 @@ if (upload) {
     document.querySelector('#file-size').textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB`;
     upload.querySelector('.form-error').hidden = true;
     if (!file.name.toLowerCase().endsWith('.xlsx')) inlineError(upload, 'Select an XLSX workbook.');
-    else if (file.size > 10 * 1024 * 1024) inlineError(upload, 'Select a workbook smaller than 10 MB.');
+    else if (file.size > maxSize) inlineError(upload, `Select a workbook smaller than ${maxSizeMB} MB.`);
   }
   input.addEventListener('change', selectedFile);
   document.querySelector('#remove-file').addEventListener('click', () => { input.value = ''; selectedFile(); input.focus(); });
@@ -309,7 +335,7 @@ if (upload) {
   upload.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy || !input.files.length) return;
-    if (input.files[0].size > 10 * 1024 * 1024 || !input.files[0].name.toLowerCase().endsWith('.xlsx')) { selectedFile(); return; }
+    if (input.files[0].size > maxSize || !input.files[0].name.toLowerCase().endsWith('.xlsx')) { selectedFile(); return; }
     if (upload.dataset.replace === 'true' && !await askConfirmation(true)) return;
     busy = true;
     const button = upload.querySelector('button[type="submit"]');

@@ -1,6 +1,6 @@
 <!doctype html>
 {% from 'icons.html' import icon %}
-<html lang="en">
+<html lang="en" {% if browser_mode %}data-browser-session="true"{% endif %}>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}Alphalist · Annual filing review{% endblock %}</title><link rel="icon" type="image/png" href="/static/printer-icon.png"><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
 <body>
 <a class="skip-link" href="#main">Skip to workspace</a>

@@ -8,6 +8,7 @@ import time
 import pytest
 import uvicorn
 
+from alphalist import web
 from alphalist.domain import WORKBOOK
 from alphalist.web import app
 
@@ -63,6 +64,35 @@ def import_workbook(page):
     page.locator('[data-upload] button[type="submit"]').click()
     expect(page.locator("#attention-title")).to_have_text("3 fields to complete")
     expect(page.locator("[data-record]:visible")).to_have_count(10)
+
+
+def test_hosted_browser_session_upload_reload_and_download(page, monkeypatch):
+    from playwright.sync_api import expect
+
+    monkeypatch.setattr(web, "HOSTED", True)
+    monkeypatch.setattr(web, "UPLOAD_LIMIT", 4 * 1024 * 1024)
+    monkeypatch.setitem(web.templates.env.globals, "browser_mode", True)
+    page.goto("/")
+    expect(page.locator("#workbook")).to_be_visible()
+    page.locator("#workbook").set_input_files(WORKBOOK)
+    page.locator('[data-upload] button[type="submit"]').click()
+    expect(page.locator("#attention-title")).to_have_text("3 fields to complete")
+    assert page.evaluate("sessionStorage.getItem('alphalist-review-session-v1')")
+    page.reload()
+    expect(page.locator("#attention-title")).to_have_text("3 fields to complete")
+    page.locator('.employer-card [name="value_tin"]').fill("123456789")
+    page.locator('.employer-card [name="value_branch"]').fill("0000")
+    page.locator('.employer-card button[type="submit"]').click()
+    expect(page.locator("#attention-title")).to_have_text("1 field to complete")
+    page.reload()
+    expect(page.locator("#attention-title")).to_have_text("1 field to complete")
+    page.locator('[data-employee][href="/employee/12"]').first.click()
+    expect(page.locator("#employee-drawer [name='employee_tin']")).to_be_visible()
+    page.locator("#employee-drawer [data-close-employee]").first.click()
+    page.locator(".pdf-menu summary").click()
+    with page.expect_download() as draft:
+        page.get_by_role("link", name="Draft PDF").click()
+    assert draft.value.suggested_filename == "alphalist-draft.pdf"
 
 
 def test_workspace_corrections_search_drawer_downloads(page, tmp_path):

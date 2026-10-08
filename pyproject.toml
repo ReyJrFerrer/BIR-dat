@@ -19,7 +19,7 @@ alphalist = "alphalist.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-alphalist = ["headers.json", "templates/*.html", "static/*", "pdf_assets/*"]
+alphalist = ["headers.json", "templates/*.html", "static/*", "pdf_assets/*", "fixtures/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

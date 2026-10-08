@@ -1,12 +1,10 @@
-"""Local browser interface with isolated, expiring in-memory reviews."""
+"""Browser interface with local or shared, expiring review sessions."""
 
 import copy
 import json
+import os
 import secrets
-import threading
-import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -29,65 +27,48 @@ from .presentation import (
     workspace_state,
 )
 from .review import audit, correct, load_reference
+from .session_store import LocalStore, Session, decode, encode
 from .workbook import HEADERS, MAX_UPLOAD, read_workbook
 
 PACKAGE = Path(__file__).parent
-TTL = 7200
-MAX_SESSIONS = 32
-
-
-@dataclass
-class Session:
-    csrf: str
-    touched: float
-    review: Review | None = None
-    notification: str = ""
-
-
-class Store:
-    def __init__(self) -> None:
-        self.sessions: dict[str, Session] = {}
-        self.lock = threading.RLock()
-
-    def get(self, token: str | None) -> tuple[str, Session]:
-        with self.lock:
-            now = time.monotonic()
-            for expired in [k for k, v in self.sessions.items() if now - v.touched > TTL]:
-                del self.sessions[expired]
-            if token not in self.sessions:
-                if len(self.sessions) >= MAX_SESSIONS:
-                    raise HTTPException(503, "Local session capacity reached. Try again later.")
-                token = secrets.token_urlsafe(32)
-                self.sessions[token] = Session(secrets.token_urlsafe(32), now)
-            assert token is not None
-            self.sessions[token].touched = now
-            return token, self.sessions[token]
-
-
-store = Store()
+HOSTED = bool(os.getenv("VERCEL"))
+UPLOAD_LIMIT = min(MAX_UPLOAD, 4 * 1024 * 1024) if HOSTED else MAX_UPLOAD
+MAX_SESSION_STATE = 2 * 1024 * 1024
+store = LocalStore()
 app = FastAPI(title="Alphalist review", docs_url=None, redoc_url=None)
 app.add_middleware(
-    TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"]
+    TrustedHostMiddleware,
+    allowed_hosts=["*"] if HOSTED else ["localhost", "127.0.0.1", "[::1]", "testserver"],
 )
 app.mount("/static", StaticFiles(directory=PACKAGE / "static"), name="static")
 templates = Jinja2Templates(directory=PACKAGE / "templates")
 templates.env.filters["amount"] = display
+templates.env.globals["browser_mode"] = HOSTED
 
 
 @app.middleware("http")
 async def session_middleware(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
+    if request.url.path.startswith("/static/") or request.url.path == "/health":
+        return await call_next(request)
     if request.method == "POST":
         length = request.headers.get("content-length", "")
-        if not length.isdigit() or int(length) > MAX_UPLOAD + 200_000:
+        if not length.isdigit() or int(length) > UPLOAD_LIMIT + 200_000:
             return JSONResponse(
-                {"detail": "Request must declare a size below 10 MB."}, status_code=413
+                {"detail": f"Request must declare a size below {UPLOAD_LIMIT // (1024 * 1024)} MB."},
+                status_code=413,
             )
-    token, session = store.get(request.cookies.get("alphalist_session"))
-    request.state.session = session
+    if HOSTED:
+        request.state.session = Session(secrets.token_urlsafe(32), 0)
+        request.state.browser_render = False
+    else:
+        token, session = store.get(request.cookies.get("alphalist_session"))
+        request.state.session = session
+        request.state.session_dirty = False
     response = await call_next(request)
-    response.set_cookie("alphalist_session", token, httponly=True, samesite="strict", max_age=TTL)
+    if not HOSTED:
+        response.set_cookie("alphalist_session", token, httponly=True, samesite="strict", max_age=7200)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Content-Security-Policy"] = (
@@ -96,13 +77,85 @@ async def session_middleware(
     return response
 
 
+def load_browser_state(request: Request, value: str | None) -> None:
+    if value is None:
+        return
+    if len(value.encode("utf-8")) > MAX_SESSION_STATE:
+        raise HTTPException(413, "This review is too large for a browser session.")
+    try:
+        request.state.session = decode(value)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(400, "The browser review is invalid. Import the workbook again.") from exc
+
+
+def browser_result(request: Request, destination: str) -> JSONResponse:
+    state = encode(request.state.session)
+    if len(state.encode("utf-8")) > MAX_SESSION_STATE:
+        raise HTTPException(413, "This review is too large for a browser session.")
+    return JSONResponse({"redirect": destination, "state": state})
+
+
+def bootstrap() -> HTMLResponse:
+    return HTMLResponse(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<title>Alphalist</title><script defer src="/static/boot.js"></script></head>'
+        '<body><main><p role="status">Opening your review…</p></main></body></html>'
+    )
+
+
+@app.post("/browser/page")
+async def browser_page(request: Request) -> JSONResponse:
+    if not HOSTED:
+        raise HTTPException(404)
+    try:
+        payload = await request.json()
+        path = str(payload["path"])
+        state = payload.get("state")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(400, "Invalid page request.") from exc
+    if state is not None and not isinstance(state, str):
+        raise HTTPException(400, "Invalid browser review.")
+    load_browser_state(request, state)
+    request.state.browser_render = True
+    route, _, query = path.partition("?")
+    request.state.browser_fragment = query == "fragment=1"
+    if route == "/":
+        response = home(request)
+    elif route == "/review":
+        response = review_page(request)
+    elif route.startswith("/employee/") and route.count("/") == 2:
+        response = employee_page(request, route.removeprefix("/employee/"))
+    else:
+        raise HTTPException(404)
+    return JSONResponse({"html": bytes(response.body).decode("utf-8"), "state": encode(request.state.session)})
+
+
+@app.post("/browser/download/{kind}")
+async def browser_download(request: Request, kind: str) -> Response:
+    if not HOSTED:
+        raise HTTPException(404)
+    try:
+        payload = await request.json()
+        state = payload.get("state")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, "Invalid download request.") from exc
+    if state is not None and not isinstance(state, str):
+        raise HTTPException(400, "Invalid browser review.")
+    load_browser_state(request, state)
+    request.state.browser_render = True
+    return download(request, kind)
+
+
 @app.exception_handler(ValueError)
 async def invalid_input(request: Request, exc: ValueError) -> HTMLResponse:
     return templates.TemplateResponse(request, "error.html", {"message": str(exc)}, status_code=400)
 
 
 async def checked_form(request: Request) -> FormData:
-    form = await request.form(max_files=1, max_fields=100, max_part_size=MAX_UPLOAD)
+    form = await request.form(max_files=1, max_fields=100, max_part_size=UPLOAD_LIMIT)
+    if HOSTED:
+        load_browser_state(request, str(form.get("_browser_session", "")))
     if not secrets.compare_digest(str(form.get("csrf", "")), request.state.session.csrf):
         raise HTTPException(403, "Session token is invalid. Reload the page and try again.")
     return form
@@ -122,10 +175,13 @@ def save(request: Request, review: Review, revision: str) -> None:
         if existing is None or str(existing.revision) != revision:
             raise HTTPException(409, "This review changed in another tab. Reload before saving.")
         request.state.session.review = review
+        request.state.session_dirty = True
 
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> Response:
+    if HOSTED and not request.state.browser_render:
+        return bootstrap()
     review = request.state.session.review
     return templates.TemplateResponse(
         request,
@@ -133,6 +189,7 @@ def home(request: Request) -> Response:
         {
             "csrf": request.state.session.csrf,
             "active": review is not None,
+            "upload_limit_mb": UPLOAD_LIMIT // (1024 * 1024),
             "workspace": workspace_state(build_snapshot(review)) if review else None,
         },
     )
@@ -147,6 +204,9 @@ async def reference(request: Request, kind: str) -> Response:
         request.state.session.notification = (
             f"Workbook prepared. {len(review.source.rows)} employees imported."
         )
+        request.state.session_dirty = True
+    if HOSTED:
+        return browser_result(request, "/review")
     return RedirectResponse("/review", status_code=303)
 
 
@@ -157,7 +217,9 @@ async def upload(request: Request) -> Response:
     if not isinstance(file, UploadFile):
         raise ValueError("Select a workbook.")
     try:
-        data = await file.read(MAX_UPLOAD + 1)
+        data = await file.read(UPLOAD_LIMIT + 1)
+        if len(data) > UPLOAD_LIMIT:
+            raise ValueError(f"Workbook must be smaller than {UPLOAD_LIMIT // (1024 * 1024)} MB.")
         review = Review(read_workbook(data, Path(file.filename or "").name))
     except ValueError as exc:
         if request.headers.get("accept") == "application/json":
@@ -168,6 +230,7 @@ async def upload(request: Request) -> Response:
             {
                 "csrf": request.state.session.csrf,
                 "active": request.state.session.review is not None,
+                "upload_limit_mb": UPLOAD_LIMIT // (1024 * 1024),
                 "error": str(exc),
                 "failed_filename": file.filename,
             },
@@ -180,6 +243,9 @@ async def upload(request: Request) -> Response:
         request.state.session.notification = (
             f"Workbook prepared. {len(review.source.rows)} employees imported."
         )
+        request.state.session_dirty = True
+    if HOSTED:
+        return browser_result(request, "/review")
     if request.headers.get("accept") == "application/json":
         return JSONResponse({"redirect": "/review"})
     return RedirectResponse("/review", status_code=303)
@@ -187,11 +253,15 @@ async def upload(request: Request) -> Response:
 
 @app.get("/review", response_class=HTMLResponse)
 def review_page(request: Request) -> Response:
+    if HOSTED and not request.state.browser_render:
+        return bootstrap()
     review = current(request)
     snapshot = build_snapshot(review)
     originals = build_snapshot(Review(review.source))
     notification = request.state.session.notification
     request.state.session.notification = ""
+    if notification:
+        request.state.session_dirty = True
     return templates.TemplateResponse(
         request,
         "review.html",
@@ -211,6 +281,8 @@ def review_page(request: Request) -> Response:
 
 @app.get("/employee/{key}", response_class=HTMLResponse)
 def employee_page(request: Request, key: str) -> Response:
+    if HOSTED and not request.state.browser_render:
+        return bootstrap()
     review = current(request)
     row = next((row for row in review.source.rows if row.key == key), None)
     if row is None:
@@ -227,7 +299,8 @@ def employee_page(request: Request, key: str) -> Response:
             "review": review,
             "snapshot": snapshot,
             "workspace": workspace_state(snapshot),
-            "fragment": request.query_params.get("fragment") == "1",
+            "fragment": request.query_params.get("fragment") == "1"
+            or (HOSTED and getattr(request.state, "browser_fragment", False)),
             "row": row,
             "record": next(record for record in snapshot.records if record.key == key),
             "values": row.values | review.overrides.get(key, {}),
@@ -289,7 +362,7 @@ async def correction(request: Request, scope: str) -> Response:
         destination += "" if scope == "context" else f"?employee={scope}"
         destination += f"#field-{remaining[0].field}"
     if request.headers.get("accept") == "application/json":
-        return JSONResponse({"redirect": destination})
+        return browser_result(request, destination) if HOSTED else JSONResponse({"redirect": destination})
     return RedirectResponse(destination, status_code=303)
 
 
@@ -335,11 +408,15 @@ async def evidence(request: Request) -> Response:
     )
     review.revision += 1
     save(request, review, str(form.get("revision", "")))
+    if HOSTED:
+        return browser_result(request, "/review#evidence")
     return RedirectResponse("/review#evidence", status_code=303)
 
 
 @app.get("/download/{kind}")
 def download(request: Request, kind: str) -> Response:
+    if HOSTED and not request.state.browser_render:
+        raise HTTPException(404)
     review = current(request)
     snapshot = build_snapshot(review)
     if kind == "dat":
@@ -371,6 +448,9 @@ async def clear(request: Request) -> Response:
     await checked_form(request)
     with store.lock:
         request.state.session.review = None
+        request.state.session_dirty = True
+    if HOSTED:
+        return browser_result(request, "/")
     return RedirectResponse("/", status_code=303)
 
 

@@ -7,12 +7,12 @@ from typing import Literal
 
 from .profiles import normalize_name, uppercase_name
 
-ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = Path(__file__).with_name("fixtures")
 PROFILE = "1604C-2025-schedule1-candidate-v3"
 REFERENCE_HASH = "59892d6a782fb46aa44060ec9ca74db5ae3a3862eb247513908b8bb6a519c788"
 LOG_HASH = "acc3b57944f1232a456d77ac8417ae12829636a7b93ad9278b495240818f9505"
-WORKBOOK = ROOT / "data/Kalamansi Trading 1604CF Annualization 2025.xlsx"
-REFERENCE = ROOT / "res/6847855100000123120251604C.DAT"
+WORKBOOK = FIXTURES / "Kalamansi Trading 1604CF Annualization 2025.xlsx"
+REFERENCE = FIXTURES / "6847855100000123120251604C.DAT"
 REFERENCE_LOG = REFERENCE.with_suffix(".TXT")
 ZERO = Decimal("0.00")
 

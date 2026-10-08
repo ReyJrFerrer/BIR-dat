@@ -3,9 +3,9 @@
   <div class="eyebrow">ANNUAL ALPHALIST</div><h1>Create your annual alphalist</h1>
   <p class="muted">Import your workbook to review employees and download your files.</p>
   <article class="glass upload-card"><div class="upload-symbol">{{ icon('upload') }}</div><h2>Import your workbook</h2>
-    <form action="/upload" method="post" enctype="multipart/form-data" data-upload data-replace="{{ 'true' if active else 'false' }}">
+    <form action="/upload" method="post" enctype="multipart/form-data" data-upload data-replace="{{ 'true' if active else 'false' }}" data-max-size="{{ upload_limit_mb * 1024 * 1024 }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <label class="dropzone" for="workbook"><strong>Drop your workbook here</strong><span>Excel workbook · XLSX · up to 10 MB</span><span class="button secondary">Select workbook</span><input id="workbook" type="file" name="workbook" accept=".xlsx" required aria-label="Select workbook"></label>
+      <label class="dropzone" for="workbook"><strong>Drop your workbook here</strong><span>Excel workbook · XLSX · up to {{ upload_limit_mb }} MB</span><span class="button secondary">Select workbook</span><input id="workbook" type="file" name="workbook" accept=".xlsx" required aria-label="Select workbook"></label>
       <div id="file-selection" class="file-selection" hidden><div><strong id="file-name"></strong><small id="file-size"></small></div><button type="button" class="text-button" id="remove-file">Remove selection</button></div>
       <p class="form-error" role="alert" {% if not error %}hidden{% endif %}>{{ error or '' }}{% if failed_filename %} ({{ failed_filename }}){% endif %}</p>
       <p class="loading-status muted" role="status" hidden>Preparing your workbook…</p>
