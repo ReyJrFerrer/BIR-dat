@@ -5,7 +5,7 @@
 <body>
 <a class="skip-link" href="#main">Skip to workspace</a>
 <header class="topbar"><div class="nav-inner">
-  <a class="brand" href="{{ '/review' if workspace else '/' }}"><span class="brandmark">A</span> Alphalist</a>
+  <a class="brand" href="{{ '/review' if workspace else '/' }}"><img class="brandmark" src="/static/printer-icon.png" alt="" width="40" height="42"> Alphalist</a>
   <nav class="workspace-links" aria-label="Workspace"><a href="{{ '/review#overview' if workspace else '/' }}" {% if workspace %}class="active"{% endif %}>Overview</a></nav>
   <div class="nav-actions">
     <a class="button nav-import" href="/">{{ icon('upload') }} Import workbook</a>
