@@ -26,6 +26,7 @@ from .presentation import (
     QUESTION_HELP,
     data_tasks,
     grouped_issues,
+    grouped_mappings,
     question_options,
 )
 from .review import audit, correct, load_reference, status
@@ -174,8 +175,14 @@ def review_page(request: Request) -> Response:
             "originals": originals,
             "blockers": sum(i.severity == "error" for i in snapshot.issues),
             "tasks": data_tasks(snapshot),
-            "review_groups": grouped_issues(snapshot, "review"),
+            "review_groups": [
+                g
+                for g in grouped_issues(snapshot, "review", "warning")
+                if g.key in question_options()
+            ],
             "profile_groups": grouped_issues(snapshot, "profile"),
+            "profile_notes": grouped_issues(snapshot, "profile", "warning"),
+            "mapping_groups": grouped_mappings(snapshot),
             "declarations": question_options(),
             "question_help": QUESTION_HELP,
             "answer_labels": ANSWER_LABELS,
@@ -212,9 +219,18 @@ def employee_page(request: Request, key: str) -> Response:
             "tasks": tasks,
             "correction_fields": correction_fields,
             "field_groups": FIELD_GROUPS,
-            "review_groups": grouped_issues(snapshot, "review"),
+            "review_groups": [
+                g
+                for g in grouped_issues(snapshot, "review", "warning")
+                if g.key in question_options()
+            ],
             "profile_issues": [
-                i for i in snapshot.issues if i.row_key == key and i.category == "profile"
+                i
+                for i in snapshot.issues
+                if i.row_key == key and i.category == "profile" and i.severity == "error"
+            ],
+            "record_notes": [
+                i for i in snapshot.issues if i.row_key == key and i.severity == "warning"
             ],
             "answers": review.declarations.get(key, {}),
             "issues": [i for i in build_snapshot(review).issues if i.row_key == key],

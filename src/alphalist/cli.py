@@ -8,7 +8,7 @@ from .conversion import build_snapshot
 from .dat import filename, serialize
 from .domain import Review
 from .pdf import render
-from .review import audit, load_reference
+from .review import audit, load_reference, status
 from .workbook import read_workbook
 
 
@@ -48,7 +48,7 @@ def main() -> None:
             (args.output / filename(snapshot)).write_bytes(serialize(snapshot))
         print(
             f"{len(snapshot.records)} employees. "
-            + ("Internal checks passed." if snapshot.valid else "Needs correction; draft only.")
+            + (status(review) + "." if snapshot.valid else "Needs correction; draft only.")
         )
         print(f"Outputs: {args.output.resolve()}")
     except (ValueError, OSError) as exc:

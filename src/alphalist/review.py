@@ -117,7 +117,7 @@ def status(review: Review) -> str:
         return "Needs correction"
     if review.evidence and digest(serialize(snapshot)) == review.evidence.dat_hash:
         return "Official validation evidence attached"
-    return "Passed internal checks"
+    return "Ready for BIR validation"
 
 
 def audit(review: Review) -> dict[str, object]:
@@ -129,6 +129,11 @@ def audit(review: Review) -> dict[str, object]:
         "sheet": review.source.sheet,
         "revision": review.revision,
         "status": status(review),
+        "export_purpose": "Candidate DAT for official BIR validation; not proof of approval or filing",
+        "encoding": snapshot.context.encoding,
+        "automatic_mappings": [asdict(m) for m in snapshot.mappings],
+        "blocking_issues": [asdict(i) for i in snapshot.issues if i.severity == "error"],
+        "review_notes": [asdict(i) for i in snapshot.issues if i.severity == "warning"],
         "output_hash": digest(serialize(snapshot)) if snapshot.valid else None,
         "context": asdict(snapshot.context),
         "original_context": asdict(review.source.context),

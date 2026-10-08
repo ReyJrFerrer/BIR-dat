@@ -129,7 +129,11 @@ def render(snapshot: Snapshot, draft: bool = False) -> bytes:
         page_number += 1
         page_records = []
         y = draw_paragraph(
-            "DRAFT — unresolved data" if draft else "ALPHALIST OF EMPLOYEES — SCHEDULE 1", 584, True
+            "DRAFT — unresolved data"
+            if draft
+            else "ALPHALIST OF EMPLOYEES — SCHEDULE 1 — FOR BIR VALIDATION",
+            584,
+            True,
         )
         y = draw_paragraph(
             f"{snapshot.context.name or 'Employer not supplied'} | Year {snapshot.context.year or 'not supplied'} | "
@@ -146,6 +150,12 @@ def render(snapshot: Snapshot, draft: bool = False) -> bytes:
             y = draw_paragraph(
                 "Source/proposed amounts only. *Refund and adjusted amounts are not proof of payment. "
                 "See validation summary for unresolved classifications and mappings.",
+                y - 4,
+            )
+        else:
+            y = draw_paragraph(
+                "Source-preserving candidate. Review notes accompany the JSON report. "
+                "*Computed refund/adjusted withholding is not proof of payment or official BIR approval.",
                 y - 4,
             )
         y -= 12

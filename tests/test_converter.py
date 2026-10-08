@@ -34,8 +34,10 @@ def test_original_workbook_has_only_three_data_tasks():
     snapshot = build_snapshot(review)
     assert len(snapshot.records) == 11
     assert {task.key for task in data_tasks(snapshot)} == {":tin", ":branch", "12:V"}
-    assert len(grouped_issues(snapshot, "review")) == 6
-    assert len(grouped_issues(snapshot, "profile")) > 0
+    assert not grouped_issues(snapshot, "review")
+    assert len(grouped_issues(snapshot, "review", "warning")) >= 6
+    assert not grouped_issues(snapshot, "profile")
+    assert grouped_issues(snapshot, "profile", "warning")
     assert snapshot.total("I") == Decimal("623085.66")
     assert snapshot.total("O") == Decimal("4100331.50")
     assert snapshot.total("P") == Decimal("422807.50")
@@ -75,7 +77,7 @@ def test_shared_answers_never_fabricate_values_or_override_exceptions():
     assert audit(review)["filing_declarations"] == {"schedule": "mwe", "prior": "none"}
 
 
-def test_user_cannot_dismiss_profile_checks_with_shared_answers():
+def test_shared_answers_do_not_resolve_missing_identifiers():
     review = load_reference("workbook")
     before = {i.code for i in build_snapshot(review).issues if i.category == "profile"}
     correct(
@@ -120,7 +122,7 @@ def test_corrections_revalidate_and_evidence_follows_hash():
     correct(review, "6", {"X": "Maria"}, "Restore the original supplied name")
     assert status(review) == "Official validation evidence attached"
     correct(review, "6", {"AS": "28999.00"}, "Test adjusted amount recalculation")
-    assert status(review) == "Passed internal checks"
+    assert status(review) == "Ready for BIR validation"
     assert not audit(review)["evidence_matches_current_output"]
 
 

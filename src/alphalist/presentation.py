@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from .conversion import DECLARATIONS
-from .domain import Snapshot, ValidationIssue
+from .domain import AutomaticMapping, Snapshot, ValidationIssue
 
 QUESTION_HELP = {
     "schedule": (
@@ -33,7 +33,7 @@ QUESTION_HELP = {
     ),
 }
 ANSWER_LABELS = {
-    "unknown": "Not known — leave unresolved",
+    "unknown": "Not known — keep source values",
     "confirmed": "Confirmed by supporting information",
     "non_mwe": "Confirmed: not minimum wage earners",
     "mwe": "Minimum wage earners — Schedule 2 needed",
@@ -52,6 +52,22 @@ PROFILE_LABELS = {
     "BENEFIT_PROFILE": "Benefit classification",
     "LOW_INCOME_PROFILE": "Low-income employee mapping",
     "ORDERING_PROFILE": "Multi-employee output ordering",
+    "CHARACTER_ACCEPTANCE": "Special characters preserved",
+    "NAME_ESCAPING": "Quoted name punctuation",
+    "PRIOR_VALIDATION": "Previous-employer candidate mapping",
+    "LOW_INCOME_VALIDATION": "Low-income source allocation",
+    "UNSUPPORTED_MWE": "Schedule 2 is not implemented",
+}
+MAPPING_LABELS = {
+    "IDENTIFIERS": "TIN separators and branch formatting",
+    "TOTALS": "Missing totals calculated from supplied components",
+    "NAMES": "Names preserved with lossless encoding",
+    "CODES": "Employee codes and absent separation reasons",
+    "YEAR_END": "December collection and refund calculations",
+    "PREVIOUS_EMPLOYER": "Previous-employer compensation and withholding",
+    "BENEFITS": "Benefit categories and reconciliation",
+    "LOW_INCOME": "Low-income source amounts preserved",
+    "ORDERING": "Employee ordering and sequence numbers",
 }
 FIELD_GROUPS = [
     ("Identity and employment", "A B V W X Y Z C D AA AB AC AD".split()),
@@ -81,10 +97,12 @@ def data_tasks(snapshot: Snapshot, row_key: str | None = None) -> tuple[IssueGro
     )
 
 
-def grouped_issues(snapshot: Snapshot, category: str) -> tuple[IssueGroup, ...]:
+def grouped_issues(
+    snapshot: Snapshot, category: str, severity: str = "error"
+) -> tuple[IssueGroup, ...]:
     groups: dict[str, list[ValidationIssue]] = defaultdict(list)
     for issue in snapshot.issues:
-        if issue.severity == "error" and issue.category == category:
+        if issue.severity == severity and issue.category == category:
             groups[issue.field if category == "review" else issue.code].append(issue)
     return tuple(
         IssueGroup(
@@ -93,6 +111,22 @@ def grouped_issues(snapshot: Snapshot, category: str) -> tuple[IssueGroup, ...]:
             tuple(items),
         )
         for key, items in groups.items()
+    )
+
+
+@dataclass(frozen=True)
+class MappingGroup:
+    key: str
+    label: str
+    mappings: tuple[AutomaticMapping, ...]
+
+
+def grouped_mappings(snapshot: Snapshot) -> tuple[MappingGroup, ...]:
+    groups: dict[str, list[AutomaticMapping]] = defaultdict(list)
+    for mapping in snapshot.mappings:
+        groups[mapping.code].append(mapping)
+    return tuple(
+        MappingGroup(key, MAPPING_LABELS[key], tuple(items)) for key, items in groups.items()
     )
 
 

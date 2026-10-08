@@ -1,4 +1,4 @@
-"""Pinned byte serializer. Only validated snapshots can reach this writer."""
+"""Serialize complete candidates for testing in the official BIR validator."""
 
 import csv
 import hashlib
@@ -19,9 +19,7 @@ def serialize(snapshot: Snapshot) -> bytes:
     context = snapshot.context
     lines = [f"H1604C,{context.tin},{context.branch},12/31/{context.year}"]
     details = []
-    for sequence, record in enumerate(
-        sorted(snapshot.records, key=lambda r: (r.name.upper(), r.employee_id)), 1
-    ):
+    for sequence, record in enumerate(snapshot.records, 1):
         if record.detail is None:
             raise ValueError("Missing normalized employee details.")
         fields = list(record.detail)
@@ -30,19 +28,22 @@ def serialize(snapshot: Snapshot) -> bytes:
             raise ValueError("Profile requires exactly 49 D1 fields.")
         details.append(fields)
         lines.append(
-            ",".join(f'"{v}"' if index in (8, 9, 10) else v for index, v in enumerate(fields))
+            ",".join(
+                '"' + v.replace('"', '""') + '"' if index in (8, 9, 10) else v
+                for index, v in enumerate(fields)
+            )
         )
     controls = [f"{sum((Decimal(row[i]) for row in details), ZERO):.2f}" for i in CONTROL_INDICES]
     lines.append(
         ",".join(["C1", "1604C", context.tin, context.branch, f"12/31/{context.year}", *controls])
     )
-    output = ("\r\n".join(lines) + "\r\n").encode("ascii")
-    verify(output)
+    output = ("\r\n".join(lines) + "\r\n").encode(snapshot.context.encoding, errors="strict")
+    verify(output, encoding=snapshot.context.encoding)
     return output
 
 
-def verify(data: bytes) -> None:
-    rows = list(csv.reader(data.decode("ascii").splitlines()))
+def verify(data: bytes, encoding: str = "cp1252") -> None:
+    rows = list(csv.reader(data.decode(encoding).splitlines(), strict=True))
     if (
         len(rows) < 3
         or len(rows[0]) != 4
@@ -54,6 +55,12 @@ def verify(data: bytes) -> None:
     details = rows[1:-1]
     if any(len(row) != 49 or row[0] != "D1" for row in details):
         raise ValueError("Invalid detail shape.")
+    identity = rows[0][1:]
+    if rows[-1][1:5] != ["1604C", *identity]:
+        raise ValueError("Control context does not match the header.")
+    for sequence, row in enumerate(details, 1):
+        if row[1:5] != ["1604C", *identity] or row[5] != str(sequence):
+            raise ValueError("Detail context or sequence does not match the header.")
     for index, control in zip(CONTROL_INDICES, rows[-1][5:], strict=True):
         if sum((Decimal(row[index]) for row in details), ZERO) != Decimal(control):
             raise ValueError("Control total mismatch.")

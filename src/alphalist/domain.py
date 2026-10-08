@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 ROOT = Path(__file__).resolve().parents[2]
-PROFILE = "1604C-7.4-observed-schedule1-v1"
+PROFILE = "1604C-2025-schedule1-candidate-v2"
 REFERENCE_HASH = "59892d6a782fb46aa44060ec9ca74db5ae3a3862eb247513908b8bb6a519c788"
 LOG_HASH = "acc3b57944f1232a456d77ac8417ae12829636a7b93ad9278b495240818f9505"
 WORKBOOK = ROOT / "data/Kalamansi Trading 1604CF Annualization 2025.xlsx"
@@ -21,6 +21,7 @@ class FilingContext:
     tin: str = ""
     branch: str = ""
     year: str = "2025"
+    encoding: str = "cp1252"
 
 
 @dataclass
@@ -69,15 +70,30 @@ class EmployeeAnnualRecord:
 
 
 @dataclass(frozen=True)
+class AutomaticMapping:
+    code: str
+    employee: str
+    row_key: str
+    field: str
+    cell: str
+    before: str
+    after: str
+    reason: str
+    basis: str
+
+
+@dataclass(frozen=True)
 class Snapshot:
     context: FilingContext
     records: tuple[EmployeeAnnualRecord, ...]
     issues: tuple[ValidationIssue, ...]
     source_hash: str
     profile: str = PROFILE
+    mappings: tuple[AutomaticMapping, ...] = ()
 
     @property
     def valid(self) -> bool:
+        """Complete enough to export for validation; not official BIR approval."""
         return bool(self.records) and not any(i.severity == "error" for i in self.issues)
 
     def total(self, field: str) -> Decimal | None:

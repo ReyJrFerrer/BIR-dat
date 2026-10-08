@@ -27,7 +27,7 @@ def load(client, kind):
 
 def test_home_and_validated_download(client):
     _, response = load(client, "validated")
-    assert "Ready to export" in response.text
+    assert "Ready for BIR validation" in response.text
     assert client.get("/download/dat").content == REFERENCE.read_bytes()
     assert client.get("/download/pdf").headers["content-type"] == "application/pdf"
 
@@ -35,8 +35,9 @@ def test_home_and_validated_download(client):
 def test_resolution_screen_prioritizes_only_real_corrections(client):
     _, response = load(client, "workbook")
     assert "3 fields" in response.text
-    assert "6 unanswered" in response.text
-    assert "Converter support" in response.text
+    assert "Optional review questions" in response.text
+    assert "Automatic preparation" in response.text
+    assert "Lossless candidate encoding" in response.text
     assert "92 blockers" not in response.text
     response = client.get("/employee/12")
     assert response.status_code == 200
@@ -89,3 +90,45 @@ def test_upload_and_invalid_xlsx(client):
     assert len(client.get("/download/audit").json()["source_rows"]) == 11
     response = client.post("/upload", data={"csrf": csrf}, files={"workbook": ("bad.xlsx", b"bad")})
     assert response.status_code == 400
+
+
+def test_candidate_download_enabled_with_review_notes_and_hash_invalidation(client):
+    csrf, _ = load(client, "validated")
+    response = client.post(
+        "/correct/6",
+        data={
+            "csrf": csrf,
+            "revision": "0",
+            "value_withholding": "unknown",
+            "value_AS": "28999.00",
+            "reason": "Exercise candidate with a retained review note",
+        },
+    )
+    assert response.status_code == 200
+    assert "Ready for BIR validation" in response.text
+    assert "Download DAT for validation" in response.text
+    assert "Previous evidence does not validate this current review" in response.text
+    assert client.get("/download/dat").status_code == 200
+    assert client.get("/download/pdf").status_code == 200
+    record = client.get("/download/audit").json()
+    assert record["blocking_issues"] == []
+    assert record["review_notes"]
+    assert record["automatic_mappings"]
+    assert record["output_hash"] != record["evidence"]["dat_hash"]
+    assert not record["evidence_matches_current_output"]
+
+
+def test_encoding_selection_is_exposed_and_audited(client):
+    csrf, _ = load(client, "validated")
+    response = client.post(
+        "/correct/context",
+        data={
+            "csrf": csrf,
+            "revision": "0",
+            "value_encoding": "utf-8",
+            "reason": "Exercise explicit candidate encoding selection",
+        },
+    )
+    assert response.status_code == 200
+    assert client.get("/download/audit").json()["encoding"] == "utf-8"
+    assert client.get("/download/dat").content == REFERENCE.read_bytes()  # ASCII fixture unchanged.
