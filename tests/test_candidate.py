@@ -80,33 +80,129 @@ def test_previous_employer_and_refund_fields_match_shared_snapshot():
     assert "proof of payment" in text
 
 
-def test_n_with_tilde_is_preserved_without_transliteration():
-    review = supplied_rows("EMP-0004")
+def test_rejected_surnames_are_normalized_without_changing_source_or_financials():
+    review = supplied_rows("EMP-0004", "EMP-0012", "EMP-0007", "EMP-0014")
+    original = copy.deepcopy(review.source)
     snapshot = build_snapshot(review)
     output = serialize(snapshot)
-    assert b"\xd1UNEZ" in output
-    assert decoded_rows(snapshot)[1][8] == "ÑUNEZ"
-    assert review.source.rows[0].values["W"] == "Ñunez"
-    assert any(
-        i.code == "CHARACTER_ACCEPTANCE" and i.severity == "warning" for i in snapshot.issues
-    )
+    rows = decoded_rows(snapshot)
+    assert [row[8] for row in rows[1:-1]] == ["LOPEZ", "NUNEZ", "OBRIEN-SANTOS", "REYES"]
+    assert [row[5] for row in rows[1:-1]] == ["1", "2", "3", "4"]
+    assert b"\xd1" not in output and b"'" not in output
+    assert all(len(row) == 49 for row in rows[1:-1])
+    assert review.source == original
+    assert not review.history and not review.overrides
+    for record in snapshot.records:
+        source = dict(record.source)
+        for field in ("I", "O", "P", "AQ", "AR", "AS"):
+            # These supplied rows have empty previous-employer blocks: AQ stays zero.
+            assert record.amount(field) == Decimal(source[field] or "0")
+    for index, control in zip(CONTROL_INDICES, rows[-1][5:], strict=True):
+        assert sum(Decimal(row[index]) for row in rows[1:-1]) == Decimal(control)
+    mappings = [
+        m for m in audit(review)["automatic_mappings"] if m["code"] == "NAME_NORMALIZATION"
+    ]
+    assert {(m["cell"], m["before"], m["after"]) for m in mappings} == {
+        ("W9", "Ñunez", "NUNEZ"),
+        ("W13", "O'Brien-Santos", "OBRIEN-SANTOS"),
+    }
+    assert {r.employee_id: r.name for r in snapshot.records}["EMP-0004"] == "Ñunez, Ana Liza Cruz"
+    assert not any(i.code in ("CHARACTER_ACCEPTANCE", "NAME_ESCAPING") for i in snapshot.issues)
     correct(review, "context", {"encoding": "utf-8"}, "Test explicit lossless encoding selection")
     utf_snapshot = build_snapshot(review)
-    assert "ÑUNEZ".encode() in serialize(utf_snapshot)
-    assert serialize(utf_snapshot) != output
+    assert serialize(utf_snapshot) == output
     verify(serialize(utf_snapshot), encoding="utf-8")
 
 
-def test_embedded_quotes_and_commas_are_escaped_with_no_field_shift():
+@pytest.mark.parametrize("encoding", ["cp1252", "utf-8"])
+@pytest.mark.parametrize(
+    "field,value,expected",
+    [
+        ("W", "ñu'nez", "NUNEZ"),
+        ("X", "Ñu’nez", "NUNEZ"),
+        ("Y", "N\u0303u‘nez", "NUNEZ"),
+    ],
+)
+def test_normalization_applies_to_all_name_fields_and_both_encodings(field, value, expected, encoding):
     review = load_reference("validated")
-    correct(review, "6", {"W": 'Reyes, "Maria"'}, "Exercise reversible CSV quoting")
+    correct(review, "context", {"encoding": encoding})
+    correct(review, "6", {field: value})
     snapshot = build_snapshot(review)
     assert snapshot.valid
     fields = decoded_rows(snapshot)[1]
     assert len(fields) == 49
-    assert fields[8] == 'REYES, "MARIA"'
-    assert b'"REYES, ""MARIA"""' in serialize(snapshot)
-    assert any(i.code == "NAME_ESCAPING" for i in snapshot.issues)
+    assert fields[{"W": 8, "X": 9, "Y": 10}[field]] == expected
+    assert dict(snapshot.records[0].source)[field] == value
+    assert any(m.field == field and m.before == value and m.after == expected for m in snapshot.mappings)
+
+
+@pytest.mark.parametrize("encoding", ["cp1252", "utf-8"])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("W", 'Reyes, "Maria"'),
+        ("X", "Maria &"),
+        ("Y", "Santos?"),
+        ("W", "Reyes 漢"),
+        ("X", "María"),
+        ("Y", "Santos\u200b"),
+        ("W", "Reyeß"),
+        ("X", "Maria1"),
+    ],
+)
+def test_unsupported_name_characters_block_downloads_under_either_encoding(field, value, encoding):
+    review = load_reference("validated")
+    correct(review, "context", {"encoding": encoding})
+    correct(review, "6", {field: value})
+    snapshot = build_snapshot(review)
+    assert any(i.field == field and i.code == "NAME_CHARACTERS" and i.severity == "error" for i in snapshot.issues)
+    assert dict(snapshot.records[0].source)[field] == value
+    assert not snapshot.valid
+    with pytest.raises(ValueError, match="blocked"):
+        serialize(snapshot)
+    with pytest.raises(ValueError, match="blocked"):
+        render(snapshot)
+
+
+@pytest.mark.parametrize("field", ["W", "X"])
+def test_required_names_cannot_become_empty_after_normalization(field):
+    review = load_reference("validated")
+    correct(review, "6", {field: "'‘’"})
+    snapshot = build_snapshot(review)
+    assert any(i.code == "NAME_REQUIRED" and i.field == field for i in snapshot.issues)
+    with pytest.raises(ValueError, match="blocked"):
+        serialize(snapshot)
+
+
+def test_blank_middle_name_and_supported_punctuation_remain_valid():
+    review = supplied_rows("EMP-0014", "EMP-0012")
+    correct(review, "13", {"Y": ""})
+    snapshot = build_snapshot(review)
+    assert snapshot.valid
+    rows = decoded_rows(snapshot)
+    assert rows[1][9] == "MA. CRISTINA"
+    assert rows[2][8] == "OBRIEN-SANTOS"
+    assert rows[2][10] == ""
+
+
+@pytest.mark.parametrize("surname", ["O'BRIEN", "ÑUNEZ", "REYES?", "", "A" * 51])
+def test_serialized_verification_rejects_unresolved_name_content(surname):
+    data = serialize(build_snapshot(load_reference("validated")))
+    changed = data.replace(b'"REYES"', f'"{surname}"'.encode("cp1252"))
+    with pytest.raises(ValueError, match="export name"):
+        verify(changed)
+
+
+def test_pdf_uses_dat_name_order_and_retains_original_spellings():
+    review = supplied_rows("EMP-0004", "EMP-0012")
+    snapshot = build_snapshot(review)
+    names = [row[8] for row in decoded_rows(snapshot)[1:-1]]
+    assert names == ["NUNEZ", "OBRIEN-SANTOS"]
+    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(render(snapshot))).pages)
+    assert text.index("1. NUNEZ, ANA LIZA CRUZ") < text.index("2. OBRIEN-SANTOS, MARK ANTHONY VILLAR")
+    assert "Original: Ñunez, Ana Liza Cruz" in text
+    assert "Original: O'Brien-Santos, Mark Anthony Villar" in text
+    assert "Grand total" in text
 
 
 @pytest.mark.parametrize(

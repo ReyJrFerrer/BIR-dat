@@ -5,8 +5,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+from .profiles import normalize_name, uppercase_name
+
 ROOT = Path(__file__).resolve().parents[2]
-PROFILE = "1604C-2025-schedule1-candidate-v2"
+PROFILE = "1604C-2025-schedule1-candidate-v3"
 REFERENCE_HASH = "59892d6a782fb46aa44060ec9ca74db5ae3a3862eb247513908b8bb6a519c788"
 LOG_HASH = "acc3b57944f1232a456d77ac8417ae12829636a7b93ad9278b495240818f9505"
 WORKBOOK = ROOT / "data/Kalamansi Trading 1604CF Annualization 2025.xlsx"
@@ -64,6 +66,20 @@ class EmployeeAnnualRecord:
     source: tuple[tuple[str, str], ...]
     amounts: tuple[tuple[str, Decimal | None], ...]
     detail: tuple[str, ...] | None
+
+    @property
+    def export_name(self) -> str:
+        source = dict(self.source)
+        surname, given, middle = (normalize_name(source[field]) for field in ("W", "X", "Y"))
+        return f"{surname}, {given} {middle}".strip()
+
+    @property
+    def name_adjusted(self) -> bool:
+        source = dict(self.source)
+        return any(
+            normalize_name(source[field]) != uppercase_name(source[field])
+            for field in ("W", "X", "Y")
+        )
 
     def amount(self, key: str) -> Decimal | None:
         return dict(self.amounts).get(key)

@@ -233,3 +233,47 @@ def test_recheck_without_changes_does_not_claim_edits(client):
     assert "Review checked. Your files are ready to export." in response.text
     assert "Changes saved." not in response.text
     assert client.get("/download/audit").json()["corrections"] == []
+
+
+def test_original_and_export_names_are_visible_in_shared_review_order(client):
+    _, response = load(client, "workbook")
+    assert "Export: NUNEZ, ANA LIZA CRUZ" in response.text
+    assert "Export: OBRIEN-SANTOS, MARK ANTHONY VILLAR" in response.text
+    assert response.text.index("EMP-0004</small>") < response.text.index("EMP-0012</small>")
+    for key, original, exported in (
+        ("9", "Ñunez, Ana Liza Cruz", "NUNEZ, ANA LIZA CRUZ"),
+        ("13", "O&#39;Brien-Santos, Mark Anthony Villar", "OBRIEN-SANTOS, MARK ANTHONY VILLAR"),
+    ):
+        employee = client.get(f"/employee/{key}?fragment=1").text
+        assert original in employee
+        assert f"Export name: <strong>{exported}</strong>" in employee
+        assert "Your original spelling is retained" in employee
+    audit = client.get("/download/audit").json()
+    assert audit["overrides"] == {} and audit["corrections"] == []
+    assert {(m["before"], m["after"]) for m in audit["automatic_mappings"] if m["code"] == "NAME_NORMALIZATION"} == {
+        ("Ñunez", "NUNEZ"), ("O'Brien-Santos", "OBRIEN-SANTOS")
+    }
+
+
+def test_unsupported_name_is_editable_and_blocks_exports_even_with_utf8(client):
+    csrf, _ = load(client, "validated")
+    response = client.post(
+        "/correct/6",
+        data={"csrf": csrf, "revision": "0", "value_X": "Maria &"},
+    )
+    assert response.status_code == 200
+    for endpoint in ("/download/dat", "/download/pdf"):
+        assert client.get(endpoint).status_code == 400
+    assert client.get("/download/draft").status_code == 200
+    employee = client.get("/employee/6").text
+    required = employee.split('class="required-fields"')[1].split("</section>")[0]
+    assert 'name="value_X"' in required
+    assert "Unsupported export name character(s)" in required
+    client.post(
+        "/correct/context",
+        data={"csrf": csrf, "revision": "1", "value_encoding": "utf-8"},
+    )
+    assert client.get("/download/dat").status_code == 400
+    client.post("/correct/6", data={"csrf": csrf, "revision": "2", "value_X": "Maria"})
+    assert client.get("/download/dat").content == REFERENCE.read_bytes()
+    assert client.get("/download/pdf").status_code == 200

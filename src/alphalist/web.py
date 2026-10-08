@@ -229,6 +229,7 @@ def employee_page(request: Request, key: str) -> Response:
             "workspace": workspace_state(snapshot),
             "fragment": request.query_params.get("fragment") == "1",
             "row": row,
+            "record": next(record for record in snapshot.records if record.key == key),
             "values": row.values | review.overrides.get(key, {}),
             "headers": HEADERS,
             "declarations": question_options(),

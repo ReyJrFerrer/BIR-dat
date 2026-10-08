@@ -1,5 +1,11 @@
 # Python alphalist converter implementation plan
 
+## Current policy amendment: Option 1 (8 October 2026)
+
+The user selected automatic preparation and a DAT for official validation. The implemented candidate profile supersedes the original requirement to block every unverified broader case. Required data errors and unsupported schedules/PERA remain blockers. Source-preserving prior-employer/refund mappings, code support, ordering and lossless character encoding run automatically; unknown classifications and target-validator uncertainties accompany the candidate as review notes. No declaration is silently marked confirmed, no payroll category is silently reclassified, and no missing TIN is fabricated. The original full Kalamansi filing still has three identifier blockers.
+
+See [mapping-policy.md](docs/mapping-policy.md) for the implemented rules and evidence limits, and [README.md](README.md) for run/test commands. Earlier planning sections below describe the initial strict profile and should be read subject to this amendment.
+
 ## Intended outcome
 
 A local browser application that imports the supplied annualization XLSX, explains validation issues, accepts explicit employer metadata and audited employee corrections, and generates a Schedule 1 Form 1604-C DAT, reconciled PDF, and validation summary. A reusable Python core and CLI share the same conversion pipeline. The source workbook and BIR reference files remain unchanged.

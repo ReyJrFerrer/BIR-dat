@@ -17,15 +17,18 @@ from .domain import (
 )
 from .profiles import (
     EMPLOYMENT_CODES,
-    ENCODING_POLICY,
     ENCODINGS,
     FIXTURE_SOURCE,
     LAYOUT_SOURCE,
+    NAME_CHARACTERS,
+    NAME_POLICY,
     REGION_CODES,
     SEPARATION_CODES,
     SORT_POLICY,
     SOURCE_POLICY,
+    normalize_name,
     sort_key,
+    uppercase_name,
 )
 
 MONEY = "E F G H I J K L M N O P Q R S T U AJ AK AL AM AN AO AP AQ AR AS AT".split()
@@ -286,12 +289,14 @@ def build_snapshot(review: Review) -> Snapshot:
         export_names = {}
         for field in ("W", "X", "Y"):
             value = values[field]
-            if not value and field != "Y":
+            export_value = normalize_name(value)
+            export_names[field] = export_value
+            if not export_value and field != "Y":
                 problem(
                     "NAME_REQUIRED",
                     field,
-                    "Required name component is missing.",
-                    "Enter the source surname or given name.",
+                    "Required name component is empty after export normalization.",
+                    "Enter the actual surname or given name; apostrophes alone are not a name.",
                 )
             if any(ord(c) < 32 or ord(c) == 127 for c in value):
                 problem(
@@ -300,53 +305,42 @@ def build_snapshot(review: Review) -> Snapshot:
                     "Name contains a line break or control character.",
                     "Correct the source text; embedded record delimiters are not allowed.",
                 )
-            # Avoid multi-character Unicode uppercase expansions (such as ß -> SS).
-            upper = "".join(c.upper() if len(c.upper()) == 1 else c for c in value)
-            export_names[field] = upper
             try:
                 if context.encoding in ENCODINGS:
-                    upper.encode(context.encoding, errors="strict")
+                    export_value.encode(context.encoding, errors="strict")
             except UnicodeEncodeError:
                 problem(
                     "NAME_ENCODING",
                     field,
                     f"Name cannot be represented without loss in {context.encoding}.",
-                    "Select UTF-8 candidate encoding or supply a documented correction. No transliteration is automatic.",
+                    "Supply a supported export spelling. Changing encoding does not resolve unsupported name characters.",
                 )
-            if not value.isascii():
+            unsupported = sorted(
+                c for c in set(export_value) - NAME_CHARACTERS if ord(c) >= 32 and ord(c) != 127
+            )
+            if unsupported:
                 problem(
-                    "CHARACTER_ACCEPTANCE",
+                    "NAME_CHARACTERS",
                     field,
-                    "Original special characters are retained in the candidate DAT.",
-                    "Check character acceptance in your installed BIR validator; older BIR guidance restricted special characters.",
-                    "warning",
-                    "profile",
+                    "Unsupported export name character(s): " + ", ".join(repr(c) for c in unsupported) + ".",
+                    "Use a documented spelling with A–Z, spaces, hyphens or periods. Ñ and apostrophes are normalized automatically; other characters are not silently removed.",
                 )
-            if any(c in value for c in '",'):
-                problem(
-                    "NAME_ESCAPING",
-                    field,
-                    "Name punctuation is preserved using quoted CSV fields and doubled embedded quotes.",
-                    "Confirm this escaping behavior in the target validator.",
-                    "warning",
-                    "profile",
-                )
-            if len(upper) > 50:
+            if len(export_value) > 50:
                 problem(
                     "NAME_WIDTH",
                     field,
                     "Name exceeds the conservative 50-character field limit.",
                     "Verify supported field width; names are never truncated.",
                 )
-            if upper != value or not value.isascii():
+            if export_value != value:
                 mapped(
-                    "NAMES",
+                    "NAME_NORMALIZATION" if export_value != uppercase_name(value) else "NAMES",
                     field,
-                    upper,
-                    f"Uppercase name for export; original retained. Lossless {context.encoding} encoding.",
-                    ENCODING_POLICY,
+                    export_value,
+                    "Uppercase for export; replace Ñ/ñ with N and remove apostrophes. Original spelling retained; other unsupported characters block export.",
+                    NAME_POLICY,
                 )
-        if not values["Y"]:
+        if not export_names["Y"]:
             problem(
                 "MIDDLE_NAME",
                 "Y",

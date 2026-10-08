@@ -5,6 +5,7 @@ import hashlib
 from decimal import Decimal
 
 from .domain import ZERO, Snapshot
+from .profiles import NAME_CHARACTERS
 
 CONTROL_INDICES = (*range(12, 23), *range(25, 44), 48)
 
@@ -61,6 +62,10 @@ def verify(data: bytes, encoding: str = "cp1252") -> None:
     for sequence, row in enumerate(details, 1):
         if row[1:5] != ["1604C", *identity] or row[5] != str(sequence):
             raise ValueError("Detail context or sequence does not match the header.")
+        if not row[8].strip() or not row[9].strip():
+            raise ValueError("Required export name is empty.")
+        if any(set(name) - NAME_CHARACTERS or len(name) > 50 for name in row[8:11]):
+            raise ValueError("Unsupported export name characters or field width.")
     for index, control in zip(CONTROL_INDICES, rows[-1][5:], strict=True):
         if sum((Decimal(row[index]) for row in details), ZERO) != Decimal(control):
             raise ValueError("Control total mismatch.")

@@ -179,3 +179,25 @@ def test_failed_requests_and_responsive_focus(page, tmp_path):
     expect(page.locator("#file-name")).to_have_text("bad.xlsx")
     page.get_by_role("link", name="Continue review").click()
     expect(page.locator("#attention-title")).to_have_text("3 fields to complete")
+
+
+def test_original_and_export_spellings_can_be_searched_and_reviewed(page):
+    from playwright.sync_api import expect
+
+    import_workbook(page)
+    page.locator("#notification button").click()
+    for search, original, exported in (
+        ("nunez", "Ñunez, Ana Liza Cruz", "NUNEZ, ANA LIZA CRUZ"),
+        ("ñunez", "Ñunez, Ana Liza Cruz", "NUNEZ, ANA LIZA CRUZ"),
+        ("obrien-santos", "O'Brien-Santos, Mark Anthony Villar", "OBRIEN-SANTOS, MARK ANTHONY VILLAR"),
+    ):
+        page.locator("#employee-search").fill(search)
+        row = page.locator("[data-record]:visible")
+        expect(row).to_have_count(1)
+        expect(row).to_contain_text(original)
+        expect(row).to_contain_text(f"Export: {exported}")
+        row.locator("[data-employee]").click()
+        expect(page.locator("#employee-title")).to_have_text(original)
+        expect(page.locator("#employee-drawer .notice")).to_contain_text(f"Export name: {exported}")
+        page.keyboard.press("Escape")
+        expect(page.locator("#employee-drawer")).not_to_be_visible()

@@ -194,7 +194,9 @@ def render(snapshot: Snapshot, draft: bool = False) -> bytes:
     for sequence, record in enumerate(snapshot.records, 1):
         source = dict(record.source)
         heading = (
-            f"{sequence}. {record.name} | ID {record.employee_id} | TIN {record.tin or 'Not supplied'} | "
+            f"{sequence}. {record.export_name}"
+            + (f" | Original: {record.name}" if record.name_adjusted else "")
+            + f" | ID {record.employee_id} | TIN {record.tin or 'Not supplied'} | "
             f"Employment {source['C'] or 'Not supplied'} to {source['D'] or 'Not supplied'} | "
             f"Substituted filing: {source['AD'] or 'Not supplied'}"
         )

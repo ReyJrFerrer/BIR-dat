@@ -52,8 +52,6 @@ PROFILE_LABELS = {
     "BENEFIT_PROFILE": "Benefit classification",
     "LOW_INCOME_PROFILE": "Low-income employee mapping",
     "ORDERING_PROFILE": "Multi-employee output ordering",
-    "CHARACTER_ACCEPTANCE": "Special characters preserved",
-    "NAME_ESCAPING": "Quoted name punctuation",
     "PRIOR_VALIDATION": "Previous-employer candidate mapping",
     "LOW_INCOME_VALIDATION": "Low-income source allocation",
     "UNSUPPORTED_MWE": "Schedule 2 is not implemented",
@@ -61,7 +59,8 @@ PROFILE_LABELS = {
 MAPPING_LABELS = {
     "IDENTIFIERS": "TIN separators and branch formatting",
     "TOTALS": "Missing totals calculated from supplied components",
-    "NAMES": "Names preserved with lossless encoding",
+    "NAMES": "Names uppercased for export",
+    "NAME_NORMALIZATION": "Export name spelling; original retained",
     "CODES": "Employee codes and absent separation reasons",
     "YEAR_END": "December collection and refund calculations",
     "PREVIOUS_EMPLOYER": "Previous-employer compensation and withholding",

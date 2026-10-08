@@ -4,6 +4,7 @@
 <div class="employee-editor" data-employee-key="{{ row.key }}">
 <header class="drawer-heading"><div><div class="eyebrow">EMPLOYEE / {{ values.A }}</div><h2 id="employee-title">{{ values.W }}, {{ values.X }} {{ values.Y }}</h2></div><a class="icon-button" href="/review#employees" data-close-employee aria-label="Close employee">×</a></header>
 <p class="record-status {{ 'warning-text' if issues else 'success-text' }}">{{ 'Needs attention · ' ~ issues|length ~ ' issue(s)' if issues else '✓ No issues found' }}</p>
+{% if record.name_adjusted %}<p class="notice">Export name: <strong>{{ record.export_name }}</strong>. Your original spelling is retained; the DAT and PDF use this export spelling.</p>{% endif %}
 {% if not fragment %}<p class="small muted" id="export-status" data-saved-status="{{ workspace.export_description }}">{{ workspace.export_description }}</p>{% endif %}
 <form action="/correct/{{ row.key }}" method="post" data-correction>
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ review.revision }}">
