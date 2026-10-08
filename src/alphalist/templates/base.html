@@ -1,5 +1,23 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}Alphalist · Annual filing review{% endblock %}</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
-<body><header class="topbar"><a class="brand" href="/"><span class="brandmark">A</span> Alphalist <span class="brand-sub"> / filing workspace</span></a><span class="local"><i></i> Local processing</span></header>
-<main>{% block content %}{% endblock %}</main>
-<footer>1604-C · Schedule 1 · 2025 <span>Files stay on this machine. Reviews expire after 2 hours of inactivity or a server restart.</span></footer></body></html>
+{% from 'icons.html' import icon %}
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}Alphalist · Annual filing review{% endblock %}</title><link rel="stylesheet" href="/static/app.css"><script defer src="/static/app.js"></script></head>
+<body>
+<a class="skip-link" href="#main">Skip to workspace</a>
+<header class="topbar"><div class="nav-inner">
+  <a class="brand" href="{{ '/review' if workspace else '/' }}"><span class="brandmark">A</span> Alphalist</a>
+  <nav class="workspace-links" aria-label="Workspace"><a href="{{ '/review#overview' if workspace else '/' }}" {% if workspace %}class="active"{% endif %}>Overview</a></nav>
+  <div class="nav-actions">
+    <a class="button nav-import" href="/">{{ icon('upload') }} Import workbook</a>
+    <details class="pdf-menu"><summary class="button" aria-describedby="export-status" {% if not workspace %}aria-disabled="true"{% endif %}>{{ icon('file') }} Download PDF <span aria-hidden="true">⌄</span></summary><div class="menu-popover">
+      {% if workspace and workspace.can_export %}<a href="/download/pdf" data-download>Final PDF <span>↓</span></a>{% else %}<span class="disabled-option" aria-disabled="true">Final PDF · unavailable</span>{% endif %}
+      {% if workspace %}<a href="/download/draft" data-download>Draft PDF <span>↓</span></a>{% else %}<span class="disabled-option">Import a workbook to begin</span>{% endif %}
+      <small>For validation in the BIR application.</small>
+    </div></details>
+    {% if workspace and workspace.can_export %}<a class="button primary" href="/download/dat" data-download aria-label="Download DAT for validation" aria-describedby="export-status">Download DAT <span aria-hidden="true">↓</span></a>{% else %}<button class="primary" disabled aria-describedby="export-status">Download DAT <span aria-hidden="true">↓</span></button>{% endif %}
+  </div>
+</div></header>
+<main id="main">{% block content %}{% endblock %}</main>
+<dialog id="confirm-dialog" class="compact-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title">Discard unsaved changes?</h2><p id="confirm-copy">Your saved review will be kept.</p><div class="dialog-actions"><button class="secondary" data-confirm="no">Keep editing</button><button class="primary" data-confirm="yes">Discard changes</button></div></dialog>
+<div class="toast" id="notification" role="status" aria-live="polite" {% if not notification %}hidden{% endif %}><span class="status-icon" aria-hidden="true">✓</span><div>{{ notification or '' }}</div><button class="icon-button" aria-label="Dismiss notification">×</button></div>
+</body></html>

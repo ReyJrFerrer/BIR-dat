@@ -27,7 +27,7 @@ def load(client, kind):
 
 def test_home_and_validated_download(client):
     _, response = load(client, "validated")
-    assert "Ready for BIR validation" in response.text
+    assert "Ready to export" in response.text
     assert client.get("/download/dat").content == REFERENCE.read_bytes()
     assert client.get("/download/pdf").headers["content-type"] == "application/pdf"
 
@@ -35,16 +35,30 @@ def test_home_and_validated_download(client):
 def test_resolution_screen_prioritizes_only_real_corrections(client):
     _, response = load(client, "workbook")
     assert "3 fields" in response.text
-    assert "Optional review questions" in response.text
-    assert "Automatic preparation" in response.text
-    assert "Lossless candidate encoding" in response.text
+    for removed in (
+        "Optional review questions",
+        "Optional source review",
+        "Automatic preparation",
+        "Official validation evidence",
+        "Clear this review",
+        "Download review record",
+        'href="/download/audit"',
+        'name="reason"',
+        "<th>Rule</th>",
+    ):
+        assert removed not in response.text
+    assert "Advanced options" in response.text
+    assert "data-record" in response.text
+    assert response.text.count("<tr data-record") == 11
     assert "92 blockers" not in response.text
     response = client.get("/employee/12")
     assert response.status_code == 200
-    main_fields = response.text.split("CORRECT THESE FIRST")[1].split("</section>")[0]
-    assert 'name="value_V"' in main_fields
+    main_fields = response.text.split('class="required-fields"')[1].split("</section>")[0]
+    assert 'name="employee_tin"' in main_fields
+    assert 'name="employee_branch"' in main_fields
     assert 'name="value_J"' not in main_fields
-    assert "Other employee details" in response.text
+    assert "Other details" in response.text
+    assert 'name="reason"' not in response.text
     assert client.get("/download/dat").status_code == 400
     assert client.get("/download/pdf").status_code == 400
     assert client.get("/download/draft").status_code == 200
@@ -58,7 +72,6 @@ def test_shared_form_audit_and_stale_update(client):
             "csrf": csrf,
             "revision": "0",
             "value_prior": "none",
-            "reason": "Testing shared review",
         },
     )
     assert response.status_code == 200
@@ -66,6 +79,8 @@ def test_shared_form_audit_and_stale_update(client):
     assert audit["filing_declarations"]["prior"] == "none"
     assert audit["effective_declarations"]["10"]["prior"] == "present"
     assert audit["corrections"][0]["scope"] == "filing"
+    assert audit["corrections"][0]["reason"] == ""
+    assert audit["corrections"][0]["timestamp"]
     assert client.get("/download/dat").status_code == 400
     stale = client.post(
         "/correct/filing",
@@ -105,9 +120,9 @@ def test_candidate_download_enabled_with_review_notes_and_hash_invalidation(clie
         },
     )
     assert response.status_code == 200
-    assert "Ready for BIR validation" in response.text
+    assert "Ready to export" in response.text
     assert "Download DAT for validation" in response.text
-    assert "Previous evidence does not validate this current review" in response.text
+    assert "Previous evidence does not validate this current review" not in response.text
     assert client.get("/download/dat").status_code == 200
     assert client.get("/download/pdf").status_code == 200
     record = client.get("/download/audit").json()
@@ -132,3 +147,89 @@ def test_encoding_selection_is_exposed_and_audited(client):
     assert response.status_code == 200
     assert client.get("/download/audit").json()["encoding"] == "utf-8"
     assert client.get("/download/dat").content == REFERENCE.read_bytes()  # ASCII fixture unchanged.
+
+
+def test_reason_free_corrections_update_saved_snapshot_without_confirming_unknowns(client):
+    csrf, response = load(client, "workbook")
+    original = client.get("/download/audit").json()
+    response = client.post(
+        "/correct/context",
+        data={
+            "csrf": csrf,
+            "revision": "0",
+            "value_tin": "123456789",
+            "value_branch": "0000",
+        },
+    )
+    assert response.status_code == 200
+    assert "1 field to complete" in response.text
+    assert client.get("/download/dat").status_code == 400
+    response = client.post(
+        "/correct/12",
+        data={
+            "csrf": csrf,
+            "revision": "1",
+            "employee_tin": "987654321",
+            "employee_branch": "0000",
+        },
+    )
+    assert response.status_code == 200
+    assert "Ready to export" in response.text
+    assert client.get("/download/dat").status_code == 200
+    assert client.get("/download/pdf").status_code == 200
+    saved = client.get("/download/audit").json()
+    assert saved["source_rows"] == original["source_rows"]
+    assert saved["totals"] == original["totals"]
+    assert saved["declarations"] == original["declarations"]
+    assert saved["filing_declarations"] == original["filing_declarations"]
+    assert len(saved["corrections"]) == 3
+    assert all(c["reason"] == "" and c["timestamp"] for c in saved["corrections"])
+
+
+def test_ajax_failed_import_preserves_review_and_invalid_save_keeps_blockers(client):
+    csrf, _ = load(client, "validated")
+    original = client.get("/download/audit").json()
+    response = client.post(
+        "/upload",
+        data={"csrf": csrf},
+        files={"workbook": ("bad.xlsx", b"bad")},
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]
+    assert client.get("/download/audit").json() == original
+    response = client.post(
+        "/correct/6",
+        data={
+            "csrf": csrf,
+            "revision": "0",
+            "employee_tin": "invalid",
+            "employee_branch": "",
+        },
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 200
+    assert response.json()["redirect"] == "/review?employee=6#field-V"
+    assert client.get("/download/dat").status_code == 400
+    assert client.get("/download/pdf").status_code == 400
+    assert client.get("/download/draft").status_code == 200
+
+
+def test_employee_fragment_and_explicit_unsupported_decision(client):
+    csrf, _ = load(client, "validated")
+    client.post("/correct/6", data={"csrf": csrf, "revision": "0", "value_schedule": "mwe"})
+    response = client.get("/employee/6?fragment=1")
+    assert "<html" not in response.text
+    assert 'name="value_schedule"' in response.text
+    assert 'name="value_benefits"' not in response.text
+    assert 'name="reason"' not in response.text
+    assert client.get("/download/dat").status_code == 400
+    assert client.get("/download/pdf").status_code == 400
+
+
+def test_recheck_without_changes_does_not_claim_edits(client):
+    csrf, _ = load(client, "validated")
+    response = client.post("/correct/context", data={"csrf": csrf, "revision": "0"})
+    assert "Review checked. Your files are ready to export." in response.text
+    assert "Changes saved." not in response.text
+    assert client.get("/download/audit").json()["corrections"] == []

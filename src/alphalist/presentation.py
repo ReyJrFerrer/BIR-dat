@@ -72,10 +72,37 @@ MAPPING_LABELS = {
 FIELD_GROUPS = [
     ("Identity and employment", "A B V W X Y Z C D AA AB AC AD".split()),
     ("Present compensation", "E F G H I J K L M N O".split()),
-    ("Tax and withholding", "P AR AS AT".split()),
+    ("Tax and withholding", "P AR AS AT Q R S T U".split()),
     ("Previous employer", "AE AF AG AH AI AJ AK AL AM AN AO AP AQ".split()),
-    ("Source estimates and diagnostics", "Q R S T U".split()),
 ]
+
+
+def workspace_state(snapshot: Snapshot) -> dict[str, object]:
+    """One saved-snapshot view of blockers, totals and download availability."""
+    groups: dict[tuple[str, str], list[ValidationIssue]] = defaultdict(list)
+    employees: dict[str, list[ValidationIssue]] = defaultdict(list)
+    for issue in snapshot.issues:
+        if issue.severity == "error":
+            groups[(issue.row_key, issue.field)].append(issue)
+            if issue.row_key:
+                employees[issue.row_key].append(issue)
+    count = len(groups)
+    return {
+        "blocking_fields": tuple(
+            IssueGroup(f"{row}:{field}", items[0].message, tuple(items))
+            for (row, field), items in groups.items()
+        ),
+        "count": count,
+        "employee_issues": dict(employees),
+        "employer_issues": {field: items for (row, field), items in groups.items() if not row},
+        "totals": {key: snapshot.total(key) for key in ("I", "O", "P", "AQ", "AR", "AS")},
+        "can_export": snapshot.valid,
+        "export_description": (
+            "Ready to export"
+            if snapshot.valid
+            else f"Complete {count} field{'s' if count != 1 else ''} to enable final downloads"
+        ),
+    }
 
 
 @dataclass(frozen=True)

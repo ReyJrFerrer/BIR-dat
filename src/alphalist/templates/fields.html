@@ -1,10 +1,12 @@
 {% macro employee_field(key, label, row, values, messages=()) %}
-<label id="field-{{ key }}" class="{{ 'needs-value' if messages else '' }}">
-  <span class="field-label">{{ label }} <small>{{ row.cells[key] }}</small></span>
-  {% if key == 'AD' %}
-  <select name="value_{{ key }}"><option value="">Not supplied</option>{% for option in ['Yes','No'] %}<option value="{{ option }}" {{ 'selected' if values[key]|lower == option|lower else '' }}>{{ option }}</option>{% endfor %}{% if values[key] and values[key]|lower not in ['yes','no'] %}<option selected>{{ values[key] }}</option>{% endif %}</select>
-  {% else %}<input name="value_{{ key }}" value="{{ values[key] }}" maxlength="500" placeholder="Not supplied" {% if key in ['V','AE'] %}inputmode="numeric"{% endif %}>{% endif %}
-  {% for issue in messages %}<small class="field-error">{{ issue.message }}</small>{% endfor %}
-  <small>Original: {{ row.values[key] or 'Not supplied' }}</small>
+{% if key == 'V' %}
+{% set digits = values[key]|replace('-','')|replace(' ','') %}
+<div id="field-V" class="tin-fields"><label>TIN <span class="required">*</span><input name="employee_tin" value="{{ digits[:9] }}" inputmode="numeric" maxlength="9" placeholder="9-digit TIN" aria-required="true" aria-describedby="tin-hint" {% if messages %}aria-invalid="true"{% endif %}></label><label>Branch <span class="required">*</span><input name="employee_branch" value="{{ digits[9:] }}" inputmode="numeric" maxlength="4" placeholder="4 digits" aria-required="true" aria-describedby="tin-hint"></label><small id="tin-hint">Enter the 9-digit TIN and 4-digit branch, including leading zeros.</small>{% for issue in messages %}<small class="field-error">{{ issue.message }}</small>{% endfor %}</div>
+{% else %}
+<label id="field-{{ key }}"><span>{{ label }}{% if messages %} <span class="required">*</span>{% endif %}</span>
+{% if key == 'AD' %}<select name="value_{{ key }}"><option value="">Not supplied</option>{% for option in ['Yes','No'] %}<option value="{{ option }}" {{ 'selected' if values[key]|lower == option|lower else '' }}>{{ option }}</option>{% endfor %}{% if values[key] and values[key]|lower not in ['yes','no'] %}<option selected>{{ values[key] }}</option>{% endif %}</select>
+{% else %}<input name="value_{{ key }}" value="{{ values[key] }}" maxlength="500" {% if messages %}aria-invalid="true"{% endif %}>{% endif %}
+{% for issue in messages %}<small class="field-error">{{ issue.message }}</small>{% endfor %}
 </label>
+{% endif %}
 {% endmacro %}

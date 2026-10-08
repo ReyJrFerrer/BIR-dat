@@ -1,19 +1,20 @@
-{% extends 'base.html' %}
+{% extends 'fragment.html' if fragment else 'base.html' %}
 {% from 'fields.html' import employee_field %}
 {% block content %}
-<div class="breadcrumb"><a href="/review#issues">← Back to export checklist</a> / {{ values.A }}</div>
-<div class="page-heading"><div><div class="eyebrow">EMPLOYEE RECORD · {{ values.A }}</div><h1>{{ values.W }}, {{ values.X }} {{ values.Y }}</h1><p class="muted">{{ tasks|length }} field{{ 's' if tasks|length != 1 else '' }} needing correction · {{ review.source.sheet }} · Row {{ row.key }}</p></div><a class="button secondary" href="/download/draft">Download draft PDF</a></div>
-<form action="/correct/{{ row.key }}" method="post">
+<div class="employee-editor" data-employee-key="{{ row.key }}">
+<header class="drawer-heading"><div><div class="eyebrow">EMPLOYEE / {{ values.A }}</div><h2 id="employee-title">{{ values.W }}, {{ values.X }} {{ values.Y }}</h2></div><a class="icon-button" href="/review#employees" data-close-employee aria-label="Close employee">×</a></header>
+<p class="record-status {{ 'warning-text' if issues else 'success-text' }}">{{ 'Needs attention · ' ~ issues|length ~ ' issue(s)' if issues else '✓ No issues found' }}</p>
+{% if not fragment %}<p class="small muted" id="export-status" data-saved-status="{{ workspace.export_description }}">{{ workspace.export_description }}</p>{% endif %}
+<form action="/correct/{{ row.key }}" method="post" data-correction>
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="revision" value="{{ review.revision }}">
-<section class="panel priority-panel"><span class="eyebrow">CORRECT THESE FIRST</span><h2>{{ 'Required employee information' if tasks else 'No source fields need correction' }}</h2>
-{% if tasks %}<p>Only the fields with blocking data errors appear here. Enter supported values when available; unknown information can stay unresolved.</p><div class="form-grid">{% for task in tasks %}{% set field = task.issues[0].field %}{% if field in headers %}{{ employee_field(field, headers[field], row, values, task.issues) }}{% endif %}{% endfor %}</div>
-{% else %}<p>The imported fields passed their data checks. Automatic mappings run for this record. Optional review notes accompany the candidate.</p>{% endif %}
+<section class="required-fields"><h3>Tax identification</h3>
+{{ employee_field('V', 'TIN', row, values, issues|selectattr('field','equalto','V')|list) }}
+{% for task in tasks %}{% set field = task.issues[0].field %}{% if field in headers and field != 'V' %}{{ employee_field(field, headers[field], row, values, task.issues) }}{% endif %}{% endfor %}
 </section>
-{% if profile_issues %}<div class="notice">{{ profile_issues|length }} converter-support check{{ 's' if profile_issues|length != 1 else '' }} also affect this employee. These are unsupported cases that still block candidate export. <a href="/review#support">View support checks →</a></div>{% endif %}
-{% if record_notes %}<section class="panel"><details><summary>Review notes · do not block a candidate</summary>{% for issue in record_notes %}<p>{{ issue.message }} {{ issue.remedy }}</p>{% endfor %}</details></section>{% endif %}
-<section class="panel"><h2>Other employee details</h2><p>Expand a section only if another source value needs changing.</p>
-{% for title,fields in field_groups %}<details class="field-section"><summary>{{ title }}</summary><div class="form-grid source-fields">{% for key in fields if key not in correction_fields %}{{ employee_field(key, headers[key], row, values) }}{% endfor %}</div></details>{% endfor %}</section>
-<section class="panel"><details id="employee-answers"><summary>Employee exceptions to shared review answers</summary><p>These answers are optional for a candidate; record them only with supporting information. Most answers can be recorded once in the <a href="/review#shared-review">filing review</a>. Use an employee exception only when supporting information differs.</p><div class="form-grid">{% for key,definition in declarations.items() %}<label id="field-{{ key }}">{{ definition[0] }}<select name="value_{{ key }}"><option value="inherit" {{ 'selected' if key not in answers else '' }}>Use the shared answer</option>{% for option in definition[1] %}<option value="{{ option }}" {{ 'selected' if answers.get(key) == option else '' }}>{{ answer_labels[option] }}</option>{% endfor %}</select><small>Currently: {{ answer_labels.get(effective.get(key,'unknown'), 'Not known') }}</small></label>{% endfor %}</div></details></section>
-<div class="panel sticky-save"><label class="reason">Reason / supporting source<input name="reason" required maxlength="1000" placeholder="Where did the corrected information come from?"></label><button class="primary">Save & recheck</button><a href="/review#issues">Back</a></div>
-</form>
+{% for issue in profile_issues %}<p class="notice">{{ issue.message }} {{ issue.remedy }}</p>{% endfor %}
+{% for key in required_questions %}<label id="field-{{ key }}">{{ question_help[key][1] }}<select name="value_{{ key }}">{% for option in declarations[key][1] %}<option value="{{ option }}" {{ 'selected' if effective.get(key,'unknown') == option else '' }}>{{ answer_labels[option] }}</option>{% endfor %}</select>{% for issue in issues if issue.field == key %}<small class="field-error">{{ issue.message }} {{ issue.remedy }}</small>{% endfor %}</label>{% endfor %}
+<h3 class="other-details-title">Other details</h3>
+{% for title,fields in field_groups %}<details class="field-section"><summary>{{ title }}</summary><div class="form-grid">{% for key in fields if key not in correction_fields %}{{ employee_field(key, headers[key], row, values) }}{% endfor %}</div></details>{% endfor %}
+<p class="form-error" role="alert" hidden></p><footer class="drawer-footer"><a href="/review#employees" class="button secondary" data-close-employee>Cancel</a><button class="primary" type="submit">Save changes</button></footer>
+</form></div>
 {% endblock %}

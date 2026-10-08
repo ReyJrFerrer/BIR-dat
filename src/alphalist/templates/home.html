@@ -1,7 +1,18 @@
-{% extends 'base.html' %}{% block content %}
-<div class="eyebrow">ANNUAL COMPENSATION / REVIEW & CONVERT</div>
-<section class="hero"><div><h1>A clearer path from<br>payroll to alphalist.</h1><p class="lead">Review your annualization workbook, resolve data issues,<br>and create reconciled DAT and PDF outputs.</p></div><div class="hero-note"><span class="step-number">01 → 04</span><p>Import. Review. Resolve. Export.</p><small>Internal checks and official BIR validation<br>are tracked separately.</small></div></section>
-<section class="home-grid"><article class="panel upload-panel"><div class="eyebrow">START A REVIEW</div><h2>Import your workbook</h2><p>Use the 46-column BIRa annualization export. Your original workbook is kept unchanged.</p><form action="/upload" method="post" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="dropzone"> <span class="file-icon">↑</span><strong>Select an Excel workbook</strong><span>XLSX · up to 10 MB</span><input type="file" name="workbook" accept=".xlsx" required></label><button class="primary wide">Import & review <span>↗</span></button></form>{% if active %}<a class="text-link" href="/review">Continue current review →</a>{% endif %}</article>
-<article class="panel"><div class="eyebrow">EXPLORE THE TWO REFERENCES</div><h2>See both sides of the workflow</h2><div class="reference"><span class="badge success">Verified reference</span><h3>SRV Digital Solutions / Maria</h3><p>One employee. Reproduce the supplied DAT exactly and inspect its genuine BIR validation log.</p><form action="/reference/validated" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Open validated reference →</button></form></div><div class="reference"><span class="badge warning">Resolution required</span><h3>Kalamansi Trading / 11 employees</h3><p>The original workbook, including its missing TIN and unresolved classifications. Review every employee; download a draft.</p><form action="/reference/workbook" method="post"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="secondary">Open resolution reference →</button></form></div></article></section>
-<div class="notice">Opening a reference or importing a workbook replaces this browser’s active review. Download the review record first if you need to retain your changes.</div>
+{% extends 'base.html' %}{% from 'icons.html' import icon %}{% block content %}
+<section class="import-workspace">
+  <div class="eyebrow">ANNUAL ALPHALIST</div><h1>Create your annual alphalist</h1>
+  <p class="muted">Import your workbook to review employees and download your files.</p>
+  <article class="glass upload-card"><div class="upload-symbol">{{ icon('upload') }}</div><h2>Import your workbook</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data" data-upload data-replace="{{ 'true' if active else 'false' }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="dropzone" for="workbook"><strong>Drop your workbook here</strong><span>Excel workbook · XLSX · up to 10 MB</span><span class="button secondary">Select workbook</span><input id="workbook" type="file" name="workbook" accept=".xlsx" required aria-label="Select workbook"></label>
+      <div id="file-selection" class="file-selection" hidden><div><strong id="file-name"></strong><small id="file-size"></small></div><button type="button" class="text-button" id="remove-file">Remove selection</button></div>
+      <p class="form-error" role="alert" {% if not error %}hidden{% endif %}>{{ error or '' }}{% if failed_filename %} ({{ failed_filename }}){% endif %}</p>
+      <p class="loading-status muted" role="status" hidden>Preparing your workbook…</p>
+      <button class="primary wide" type="submit">Import workbook <span aria-hidden="true">→</span></button>
+    </form>
+    {% if active %}<a class="continue-link" href="/review">Continue review <span aria-hidden="true">→</span></a>{% endif %}
+  </article>
+  <p class="small muted" id="export-status" data-saved-status="{{ workspace.export_description if workspace else 'Import a workbook to begin' }}">{{ workspace.export_description if workspace else 'Import a workbook to begin' }}</p>
+</section>
 {% endblock %}

@@ -25,11 +25,10 @@ from .presentation import (
     FIELD_GROUPS,
     QUESTION_HELP,
     data_tasks,
-    grouped_issues,
-    grouped_mappings,
     question_options,
+    workspace_state,
 )
-from .review import audit, correct, load_reference, status
+from .review import audit, correct, load_reference
 from .workbook import HEADERS, MAX_UPLOAD, read_workbook
 
 PACKAGE = Path(__file__).parent
@@ -42,6 +41,7 @@ class Session:
     csrf: str
     touched: float
     review: Review | None = None
+    notification: str = ""
 
 
 class Store:
@@ -126,10 +126,15 @@ def save(request: Request, review: Review, revision: str) -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request) -> Response:
+    review = request.state.session.review
     return templates.TemplateResponse(
         request,
         "home.html",
-        {"csrf": request.state.session.csrf, "active": request.state.session.review is not None},
+        {
+            "csrf": request.state.session.csrf,
+            "active": review is not None,
+            "workspace": workspace_state(build_snapshot(review)) if review else None,
+        },
     )
 
 
@@ -139,6 +144,9 @@ async def reference(request: Request, kind: str) -> Response:
     review = load_reference(kind)
     with store.lock:
         request.state.session.review = review
+        request.state.session.notification = (
+            f"Workbook prepared. {len(review.source.rows)} employees imported."
+        )
     return RedirectResponse("/review", status_code=303)
 
 
@@ -151,10 +159,29 @@ async def upload(request: Request) -> Response:
     try:
         data = await file.read(MAX_UPLOAD + 1)
         review = Review(read_workbook(data, Path(file.filename or "").name))
+    except ValueError as exc:
+        if request.headers.get("accept") == "application/json":
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        return templates.TemplateResponse(
+            request,
+            "home.html",
+            {
+                "csrf": request.state.session.csrf,
+                "active": request.state.session.review is not None,
+                "error": str(exc),
+                "failed_filename": file.filename,
+            },
+            status_code=400,
+        )
     finally:
         await file.close()
     with store.lock:
         request.state.session.review = review
+        request.state.session.notification = (
+            f"Workbook prepared. {len(review.source.rows)} employees imported."
+        )
+    if request.headers.get("accept") == "application/json":
+        return JSONResponse({"redirect": "/review"})
     return RedirectResponse("/review", status_code=303)
 
 
@@ -163,6 +190,8 @@ def review_page(request: Request) -> Response:
     review = current(request)
     snapshot = build_snapshot(review)
     originals = build_snapshot(Review(review.source))
+    notification = request.state.session.notification
+    request.state.session.notification = ""
     return templates.TemplateResponse(
         request,
         "review.html",
@@ -170,26 +199,12 @@ def review_page(request: Request) -> Response:
             "csrf": request.state.session.csrf,
             "review": review,
             "snapshot": snapshot,
-            "state": status(review),
+            "workspace": workspace_state(snapshot),
+            "notification": notification,
             "summary_fields": SUMMARY_FIELDS,
             "originals": originals,
-            "blockers": sum(i.severity == "error" for i in snapshot.issues),
-            "tasks": data_tasks(snapshot),
-            "review_groups": [
-                g
-                for g in grouped_issues(snapshot, "review", "warning")
-                if g.key in question_options()
-            ],
-            "profile_groups": grouped_issues(snapshot, "profile"),
-            "profile_notes": grouped_issues(snapshot, "profile", "warning"),
-            "mapping_groups": grouped_mappings(snapshot),
-            "declarations": question_options(),
-            "question_help": QUESTION_HELP,
-            "answer_labels": ANSWER_LABELS,
             "headers": HEADERS,
             "row_names": {r.key: r.name for r in snapshot.records},
-            "warnings": sum(i.severity == "warning" for i in snapshot.issues),
-            "current_hash": digest(serialize(snapshot)) if snapshot.valid else None,
         },
     )
 
@@ -202,13 +217,17 @@ def employee_page(request: Request, key: str) -> Response:
         raise HTTPException(404)
     snapshot = build_snapshot(review)
     tasks = data_tasks(snapshot, key)
-    correction_fields = {item.issues[0].field for item in tasks}
+    correction_fields = {item.issues[0].field for item in tasks} | {"V"}
+    employee_issues = [i for i in snapshot.issues if i.row_key == key and i.severity == "error"]
     return templates.TemplateResponse(
         request,
         "employee.html",
         {
             "csrf": request.state.session.csrf,
             "review": review,
+            "snapshot": snapshot,
+            "workspace": workspace_state(snapshot),
+            "fragment": request.query_params.get("fragment") == "1",
             "row": row,
             "values": row.values | review.overrides.get(key, {}),
             "headers": HEADERS,
@@ -219,21 +238,16 @@ def employee_page(request: Request, key: str) -> Response:
             "tasks": tasks,
             "correction_fields": correction_fields,
             "field_groups": FIELD_GROUPS,
-            "review_groups": [
-                g
-                for g in grouped_issues(snapshot, "review", "warning")
-                if g.key in question_options()
-            ],
+            "required_questions": {
+                i.field for i in employee_issues if i.field in question_options()
+            },
             "profile_issues": [
                 i
                 for i in snapshot.issues
                 if i.row_key == key and i.category == "profile" and i.severity == "error"
             ],
-            "record_notes": [
-                i for i in snapshot.issues if i.row_key == key and i.severity == "warning"
-            ],
             "answers": review.declarations.get(key, {}),
-            "issues": [i for i in build_snapshot(review).issues if i.row_key == key],
+            "issues": employee_issues,
         },
     )
 
@@ -242,14 +256,40 @@ def employee_page(request: Request, key: str) -> Response:
 async def correction(request: Request, scope: str) -> Response:
     form = await checked_form(request)
     review = current(request)
+    history_length = len(review.history)
     changes = {
         key.removeprefix("value_"): str(value)
         for key, value in form.items()
         if key.startswith("value_")
     }
-    correct(review, scope, changes, str(form.get("reason", "")))
+    if "employee_tin" in form:
+        changes["V"] = (
+            str(form["employee_tin"]).strip() + str(form.get("employee_branch", "")).strip()
+        )
+    try:
+        correct(review, scope, changes, str(form.get("reason", "")))
+        snapshot = build_snapshot(review)
+    except ValueError as exc:
+        if request.headers.get("accept") == "application/json":
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        raise
     save(request, review, str(form.get("revision", "")))
-    return RedirectResponse("/review#issues", status_code=303)
+    state = workspace_state(snapshot)
+    completion = "Changes saved." if len(review.history) > history_length else "Review checked."
+    request.state.session.notification = (
+        f"{completion} Your files are ready to export."
+        if snapshot.valid
+        else f"{completion} {state['count']} field{'s' if state['count'] != 1 else ''} left to complete."
+    )
+    row_key = "" if scope == "context" else scope
+    remaining = [i for i in snapshot.issues if i.severity == "error" and i.row_key == row_key]
+    destination = "/review"
+    if remaining:
+        destination += "" if scope == "context" else f"?employee={scope}"
+        destination += f"#field-{remaining[0].field}"
+    if request.headers.get("accept") == "application/json":
+        return JSONResponse({"redirect": destination})
+    return RedirectResponse(destination, status_code=303)
 
 
 @app.post("/evidence")

@@ -57,9 +57,8 @@ def load_reference(kind: str) -> Review:
     return review
 
 
-def correct(review: Review, scope: str, changes: dict[str, str], reason: str) -> None:
-    if not reason.strip():
-        raise ValueError("Explain the source or reason for this correction.")
+def correct(review: Review, scope: str, changes: dict[str, str], reason: str = "") -> None:
+    # Legacy reasons remain readable; new edits record only genuine supplied metadata.
     if len(reason) > 1000 or any(len(v) > 500 for v in changes.values()):
         raise ValueError("Correction values or reason exceed supported length.")
     if scope == "filing":
