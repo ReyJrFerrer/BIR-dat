@@ -139,20 +139,30 @@ def test_prior_and_refund_amounts_are_preserved_in_draft():
 def test_pdf_reconciles_and_draft_accounts_for_every_employee():
     snapshot = build_snapshot(load_reference("validated"))
     pdf = PdfReader(io.BytesIO(render(snapshot)))
-    assert len(pdf.pages) == 1
+    assert len(pdf.pages) == 2
     assert tuple(pdf.pages[0].mediabox) == (0, 0, 1008, 612)
     text = pdf.pages[0].extract_text()
     assert "449,812.50" in text and "32,462.50" in text
-    assert "Grand total" in text and "END OF REPORT" in text
+    assert "PAGE TOTAL:" in text
+    assert "GRAND TOTAL:" in pdf.pages[-1].extract_text()
+    assert "END OF REPORT" in pdf.pages[-1].extract_text()
     snapshot = build_snapshot(load_reference("workbook"))
     draft = PdfReader(io.BytesIO(render(snapshot, draft=True)))
     assert len(draft.pages) > 1
     texts = [page.extract_text() for page in draft.pages]
     for text in texts:
-        assert "DRAFT" in text and "Page subtotal" in text
+        assert "DRAFT" in text
+    for text in texts[:-1]:
+        assert "PAGE TOTAL:" in text
+    notes = "\n".join(
+        str(annotation.get_object().get("/Contents", ""))
+        for page in draft.pages
+        for annotation in page.get("/Annots", [])
+    )
     for row in snapshot.records:
-        assert row.employee_id in "\n".join(texts)
-    assert "Grand total" in texts[-1]
+        assert row.employee_id in notes
+        assert row.export_name in " ".join(" ".join(texts).split())
+    assert "GRAND TOTAL:" in texts[-1]
 
 
 def test_moved_headers_and_columns_keep_source_coordinates():

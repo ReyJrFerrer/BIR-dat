@@ -37,6 +37,12 @@ Export names replace Ñ/ñ with N and remove apostrophes, while retaining the or
 
 When complete, download the **DAT for validation**, its **reconciled PDF**, and the JSON review record. The DAT is a candidate for testing, not proof of BIR approval or submission. The PDF uses the same financial snapshot and sequence as the DAT. Genuine external validation evidence is attached to a particular output hash; any changed DAT loses its association with previous evidence.
 
+The PDF follows `res/Test-1.pdf`: landscape legal pages, embedded Courier New,
+stacked BIR column headings, two-line employee entries, page totals, and a
+separate grand-total sheet. Full names wrap when needed; original spellings
+and employee IDs are available in PDF note annotations. Draft exports retain
+a draft label on every sheet and show missing values explicitly.
+
 Windows-1252 is the default candidate encoding; UTF-8 is available in Employer details. Supported export names are ASCII under either encoding. Revalidate regenerated files in the installed BIR validator. Unsupported MWE/Schedule 2 and nonzero PERA remain blockers.
 
 ## CLI

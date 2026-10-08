@@ -74,10 +74,11 @@ def test_previous_employer_and_refund_fields_match_shared_snapshot():
     ]
     pedro = details["SANTOS JR"]
     assert [pedro[i - 1] for i in [42, 43, 44]] == ["0.00", "3825.00", "196175.00"]
-    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(render(snapshot))).pages)
+    pdf = PdfReader(io.BytesIO(render(snapshot)))
+    text = "\n".join(p.extract_text() for p in pdf.pages)
     assert "3,825.00" in text and "573,800.00" in text
-    assert "FOR BIR VALIDATION" in text
-    assert "proof of payment" in text
+    assert "REPORTED UNDER FORM 2316" in text
+    assert "proof of payment" in pdf.metadata.subject
 
 
 def test_rejected_surnames_are_normalized_without_changing_source_or_financials():
@@ -198,11 +199,17 @@ def test_pdf_uses_dat_name_order_and_retains_original_spellings():
     snapshot = build_snapshot(review)
     names = [row[8] for row in decoded_rows(snapshot)[1:-1]]
     assert names == ["NUNEZ", "OBRIEN-SANTOS"]
-    text = "\n".join(p.extract_text() for p in PdfReader(io.BytesIO(render(snapshot))).pages)
-    assert text.index("1. NUNEZ, ANA LIZA CRUZ") < text.index("2. OBRIEN-SANTOS, MARK ANTHONY VILLAR")
-    assert "Original: Ñunez, Ana Liza Cruz" in text
-    assert "Original: O'Brien-Santos, Mark Anthony Villar" in text
-    assert "Grand total" in text
+    pdf = PdfReader(io.BytesIO(render(snapshot)))
+    text = " ".join(" ".join(p.extract_text() for p in pdf.pages).split())
+    assert text.index("NUNEZ, ANA LIZA CRUZ") < text.index("OBRIEN-SANTOS, MARK ANTHONY VILLAR")
+    notes = "\n".join(
+        str(annotation.get_object().get("/Contents", ""))
+        for page in pdf.pages
+        for annotation in page.get("/Annots", [])
+    )
+    assert "Original: Ñunez, Ana Liza Cruz" in notes
+    assert "Original: O'Brien-Santos, Mark Anthony Villar" in notes
+    assert "GRAND TOTAL:" in text
 
 
 @pytest.mark.parametrize(
